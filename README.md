@@ -2,6 +2,8 @@
 
 An AI-powered Business Operating System for audit firms. Phase 1 MVP scaffolding.
 
+> **Status:** initial scaffolding pushed; see open draft PR for the full diff.
+
 This is not just audit software — the goal is to run the entire audit operation
 intelligently: workflow automation, client document collection, accounting data
 import, AI assistant, working papers, partner review, and staff KPIs.
