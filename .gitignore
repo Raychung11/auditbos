@@ -1,0 +1,11 @@
+/config/db_config.local.php
+/uploads_private/*
+!/uploads_private/.gitkeep
+!/uploads_private/.htaccess
+*.log
+.env
+.env.local
+.DS_Store
+Thumbs.db
+/vendor/
+/node_modules/

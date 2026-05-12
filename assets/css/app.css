@@ -1,0 +1,36 @@
+/* /assets/css/app.css
+ *
+ * Project-specific overrides on top of the Tailwind CDN.
+ * Intentionally minimal — most styling lives in utility classes.
+ */
+
+/* Print-friendly working paper view */
+@media print {
+    aside, header.print-hide, footer { display: none !important; }
+    main { padding: 0 !important; }
+}
+
+/* Subtle table polish */
+.table-app {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+.table-app th {
+    text-align: left;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: rgb(71 85 105); /* slate-600 */
+    background: rgb(248 250 252); /* slate-50 */
+    padding: 0.625rem 0.875rem;
+    border-bottom: 1px solid rgb(226 232 240);
+}
+.table-app td {
+    padding: 0.75rem 0.875rem;
+    border-bottom: 1px solid rgb(241 245 249);
+    font-size: 0.875rem;
+    vertical-align: middle;
+}
+.table-app tr:hover td { background: rgb(248 250 252); }
