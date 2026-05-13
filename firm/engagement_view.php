@@ -146,7 +146,7 @@ $wpStmt->execute([':eid' => $id]);
 $workingPapers = $wpStmt->fetchAll();
 
 $aiStmt = $pdo->prepare(
-    'SELECT id, function_name, title, content, status, created_at
+    'SELECT id, output_type, title, content, status, created_at
        FROM ai_outputs
       WHERE engagement_id = :eid
       ORDER BY created_at DESC
@@ -421,7 +421,7 @@ require __DIR__ . '/../includes/header.php';
                             <li class="text-sm">
                                 <a href="/ai/output_view.php?id=<?= (int) $out['id'] ?>"
                                    class="font-medium text-slate-800 hover:text-brand-700 hover:underline block">
-                                    <?= e($out['title'] ?? $out['function_name']) ?>
+                                    <?= e($out['title'] ?? $out['output_type']) ?>
                                 </a>
                                 <div class="flex items-center gap-2 mt-0.5">
                                     <span class="text-xs text-slate-500"><?= e(datefmt($out['created_at'], 'd M Y H:i')) ?></span>
