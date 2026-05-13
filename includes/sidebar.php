@@ -34,6 +34,24 @@ $nav = [
         'icon'  => 'M3 21h18M5 21V7l7-4 7 4v14M9 9h.01M9 13h.01M9 17h.01M13 9h.01M13 13h.01M13 17h.01',
     ],
     [
+        'label' => 'Wallets',
+        'href'  => '/admin/wallets.php',
+        'roles' => ['super_admin'],
+        'icon'  => 'M3 8l4-4h10l4 4M3 8v10a2 2 0 002 2h14a2 2 0 002-2V8M3 8h18M16 13a2 2 0 100 4 2 2 0 000-4z',
+    ],
+    [
+        'label' => 'Transactions',
+        'href'  => '/admin/transactions.php',
+        'roles' => ['super_admin'],
+        'icon'  => 'M3 10h18M7 15h4m-7 4h16a2 2 0 002-2V7a2 2 0 00-2-2H4a2 2 0 00-2 2v10a2 2 0 002 2z',
+    ],
+    [
+        'label' => 'Activity Log',
+        'href'  => '/admin/activity.php',
+        'roles' => ['super_admin'],
+        'icon'  => 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M12 11h4m-4 4h4m-6-4h.01M10 15h.01',
+    ],
+    [
         'label' => 'Staff',
         'href'  => '/firm/staff.php',
         'roles' => ['firm_admin'],
