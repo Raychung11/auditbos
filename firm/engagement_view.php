@@ -403,12 +403,22 @@ require __DIR__ . '/../includes/header.php';
             </div>
             <?php if (!empty($aiOutputs)): ?>
                 <div class="border-t border-slate-200 px-5 py-3">
-                    <h4 class="text-xs uppercase tracking-wide text-slate-500 mb-2">Recent outputs</h4>
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="text-xs uppercase tracking-wide text-slate-500">Recent outputs</h4>
+                        <a href="/ai/outputs.php?engagement_id=<?= (int) $eng['id'] ?>"
+                           class="text-xs text-brand-600 hover:underline">View all</a>
+                    </div>
                     <ul class="space-y-2">
                         <?php foreach ($aiOutputs as $out): ?>
                             <li class="text-sm">
-                                <div class="font-medium text-slate-800"><?= e($out['title'] ?? $out['function_name']) ?></div>
-                                <div class="text-xs text-slate-500"><?= e(datefmt($out['created_at'], 'd M Y H:i')) ?></div>
+                                <a href="/ai/output_view.php?id=<?= (int) $out['id'] ?>"
+                                   class="font-medium text-slate-800 hover:text-brand-700 hover:underline block">
+                                    <?= e($out['title'] ?? $out['function_name']) ?>
+                                </a>
+                                <div class="flex items-center gap-2 mt-0.5">
+                                    <span class="text-xs text-slate-500"><?= e(datefmt($out['created_at'], 'd M Y H:i')) ?></span>
+                                    <?= badge($out['status']) ?>
+                                </div>
                             </li>
                         <?php endforeach; ?>
                     </ul>

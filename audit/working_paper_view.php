@@ -162,8 +162,16 @@ require __DIR__ . '/../includes/header.php';
             <?php if ($wp['risk_rating']): ?><?= badge($wp['risk_rating']) ?><?php endif; ?>
         </div>
     </div>
-    <a href="/audit/working_papers.php?action=edit&id=<?= (int) $wp['id'] ?>"
-       class="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">Edit</a>
+    <div class="flex items-center gap-2">
+        <?php if (defined('AI_ENABLED') && AI_ENABLED): ?>
+            <a href="/ai/run.php?fn=ai_review_working_paper&engagement_id=<?= (int) $wp['engagement_id'] ?>&working_paper_id=<?= (int) $wp['id'] ?>"
+               class="rounded bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 text-sm">
+                AI review
+            </a>
+        <?php endif; ?>
+        <a href="/audit/working_papers.php?action=edit&id=<?= (int) $wp['id'] ?>"
+           class="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">Edit</a>
+    </div>
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">

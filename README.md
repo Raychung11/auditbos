@@ -87,24 +87,40 @@ import, AI assistant, working papers, partner review, and staff KPIs.
 ## AI service
 
 All AI work goes through `/ai/ai_service.php`. Every call writes to `ai_logs`
-(prompt, output, tokens, latency, status) and curated outputs land in
-`ai_outputs`. Functions:
+(prompt, output, tokens, latency, status, error_message) and curated outputs
+land in `ai_outputs` (with `status` in `draft / accepted / rejected / published`).
 
-- `ai_analyze_trial_balance`
-- `ai_generate_audit_queries`
-- `ai_review_working_paper`
-- `ai_generate_management_letter`
-- `ai_generate_client_reminder`
-- `ai_detect_variance`
-- `ai_summarize_engagement_status`
-- `ai_partner_review_assistant`
+The provider is **Anthropic Claude — model `claude-opus-4-7` with adaptive
+thinking and `effort: high`**, called via cURL with no Composer dependency.
+Per-call cost is computed from `usage.input_tokens` and `usage.output_tokens`
+returned by the API and debited from `credit_wallet` (USD; firms can apply a
+markup via `AI_CREDIT_MARKUP`).
+
+Each function has a **prompt builder** in `/ai/prompts.php` that pulls real
+engagement data (TB, GL, documents, working papers, review notes) and formats
+it into a structured user message before sending. That way Claude reasons over
+the actual job, not generic instructions.
+
+Functions:
+
+- `ai_analyze_trial_balance` — uses pivoted current-vs-prior TB rows
+- `ai_generate_audit_queries` — uses outstanding docs + > 20% variances
+- `ai_review_working_paper` — uses one WP's procedure / conclusion / notes
+- `ai_generate_management_letter` — uses high-risk WPs + major review notes
+- `ai_generate_client_reminder` — uses pending document requests
+- `ai_detect_variance` — same input as TB analysis
+- `ai_summarize_engagement_status` — uses doc checklist + WPs + data summary
+- `ai_partner_review_assistant` — same as summarize, partner framing
 
 Until `AI_API_KEY` is set in `db_config.local.php`, the service returns
-deterministic stub output so the UI works end-to-end.
+deterministic stub output (echoing the built user message) so the UI works
+end-to-end.
 
-To plug a real provider in, edit `ai_call_provider()` in
-`/ai/ai_service.php`. Callers, logs, and credit accounting keep working
-unchanged.
+AI outputs can be reviewed at `/ai/outputs.php` (catalogue) and
+`/ai/output_view.php` (single view with markdown rendering, accept/reject/
+publish workflow, copy-to-clipboard, raw-text toggle). The working paper view
+has an "AI review" button that invokes `ai_review_working_paper` on the
+current WP.
 
 ## Security
 

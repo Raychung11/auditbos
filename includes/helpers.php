@@ -189,3 +189,164 @@ function badge(string $status): string
     return '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium '
         . badge_classes($status) . '">' . e($label) . '</span>';
 }
+
+/**
+ * Minimal, defensive Markdown → HTML renderer for AI output.
+ *
+ * Handles: headings, bold/italic, inline code, fenced code blocks,
+ * bullet lists (- or *) including nested via two-space indent, ordered
+ * lists (1.), block quotes (>), and horizontal rules (---).
+ *
+ * Anything not matched is rendered as escaped plain text inside <p>.
+ *
+ * Why we don't use a library: AI outputs are tiny, we want zero deps,
+ * and we want predictable, safe HTML — all inline content is escaped
+ * before formatting markers are applied to inner HTML segments.
+ */
+function md_to_html(string $markdown): string
+{
+    if ($markdown === '') {
+        return '';
+    }
+    $lines = preg_split("/\r\n|\r|\n/", $markdown);
+    $html  = [];
+    $inFence = false;
+    $fenceBuf = [];
+    $listStack = []; // entries are 'ul' or 'ol'
+    $inBlockquote = false;
+    $paraBuf = [];
+
+    $closeLists = function () use (&$listStack, &$html) {
+        while (!empty($listStack)) {
+            $html[] = '</' . array_pop($listStack) . '>';
+        }
+    };
+    $closeParagraph = function () use (&$paraBuf, &$html) {
+        if (!empty($paraBuf)) {
+            $html[] = '<p>' . md_inline(implode(' ', $paraBuf)) . '</p>';
+            $paraBuf = [];
+        }
+    };
+    $closeBlockquote = function () use (&$inBlockquote, &$html) {
+        if ($inBlockquote) {
+            $html[] = '</blockquote>';
+            $inBlockquote = false;
+        }
+    };
+
+    foreach ($lines as $raw) {
+        $line = rtrim($raw, " \t");
+
+        // Code fence (```)
+        if (preg_match('/^```/', $line)) {
+            if ($inFence) {
+                $html[] = '<pre class="bg-slate-100 rounded p-3 text-xs font-mono overflow-x-auto whitespace-pre">'
+                    . e(implode("\n", $fenceBuf)) . '</pre>';
+                $fenceBuf = [];
+                $inFence = false;
+            } else {
+                $closeParagraph();
+                $closeLists();
+                $closeBlockquote();
+                $inFence = true;
+            }
+            continue;
+        }
+        if ($inFence) {
+            $fenceBuf[] = $raw;
+            continue;
+        }
+
+        // Blank line — closes current block (but not fence handled above)
+        if ($line === '') {
+            $closeParagraph();
+            $closeLists();
+            $closeBlockquote();
+            continue;
+        }
+
+        // Horizontal rule
+        if (preg_match('/^[-*_]{3,}\s*$/', $line)) {
+            $closeParagraph(); $closeLists(); $closeBlockquote();
+            $html[] = '<hr class="my-3 border-slate-200">';
+            continue;
+        }
+
+        // Headings (# .. ######)
+        if (preg_match('/^(#{1,6})\s+(.*)$/', $line, $m)) {
+            $closeParagraph(); $closeLists(); $closeBlockquote();
+            $level = strlen($m[1]);
+            $size  = ['text-xl','text-lg','text-base','text-sm','text-sm','text-sm'][$level-1];
+            $html[] = "<h{$level} class=\"font-semibold {$size} mt-3 mb-1\">"
+                    . md_inline($m[2]) . "</h{$level}>";
+            continue;
+        }
+
+        // Block quote
+        if (preg_match('/^>\s?(.*)$/', $line, $m)) {
+            $closeParagraph(); $closeLists();
+            if (!$inBlockquote) {
+                $html[] = '<blockquote class="border-l-4 border-slate-300 pl-3 my-2 text-slate-700">';
+                $inBlockquote = true;
+            }
+            $html[] = '<p>' . md_inline($m[1]) . '</p>';
+            continue;
+        } else {
+            $closeBlockquote();
+        }
+
+        // List items — supports two-space indent nesting
+        if (preg_match('/^(\s*)([-*]|\d+\.)\s+(.*)$/', $line, $m)) {
+            $closeParagraph();
+            $depth   = (int) floor(strlen($m[1]) / 2);
+            $kind    = preg_match('/^\d+\./', $m[2]) ? 'ol' : 'ul';
+            $content = $m[3];
+
+            // Close deeper lists than current depth
+            while (count($listStack) > $depth + 1) {
+                $html[] = '</' . array_pop($listStack) . '>';
+            }
+            // Open new list if depth increased
+            while (count($listStack) <= $depth) {
+                $cls = $kind === 'ol' ? 'list-decimal' : 'list-disc';
+                $html[] = "<{$kind} class=\"{$cls} pl-5 my-1 space-y-0.5\">";
+                $listStack[] = $kind;
+            }
+            $html[] = '<li>' . md_inline($content) . '</li>';
+            continue;
+        } else {
+            // Non-list content closes any open lists.
+            if (!empty($listStack)) { $closeLists(); }
+        }
+
+        // Default: accumulate paragraph
+        $paraBuf[] = $line;
+    }
+
+    if ($inFence) {
+        $html[] = '<pre class="bg-slate-100 rounded p-3 text-xs font-mono overflow-x-auto whitespace-pre">'
+            . e(implode("\n", $fenceBuf)) . '</pre>';
+    }
+    $closeParagraph();
+    $closeLists();
+    $closeBlockquote();
+    return implode("\n", $html);
+}
+
+/**
+ * Apply inline markdown (bold/italic/code) to an already-trusted string.
+ * Escapes HTML first, then re-injects safe inline tags via regex over
+ * the escaped text — so user input cannot inject HTML.
+ */
+function md_inline(string $text): string
+{
+    $t = e($text);
+    // `code` (inline)
+    $t = preg_replace('/`([^`]+)`/', '<code class="px-1 py-0.5 bg-slate-100 rounded text-[0.85em]">$1</code>', $t) ?? $t;
+    // **bold**
+    $t = preg_replace('/\*\*([^*]+)\*\*/', '<strong>$1</strong>', $t) ?? $t;
+    // *italic* or _italic_ (avoid clobbering ** already handled)
+    $t = preg_replace('/(?<![\*\w])\*([^*\n]+)\*(?!\w)/', '<em>$1</em>', $t) ?? $t;
+    $t = preg_replace('/(?<![_\w])_([^_\n]+)_(?!\w)/', '<em>$1</em>', $t) ?? $t;
+    return $t;
+}
