@@ -243,7 +243,7 @@ function run_seed(PDO $pdo, int $firmId, ?int $userId): array
     // 6. Working papers on Acme engagement
     $wpIns = $pdo->prepare(
         'INSERT INTO audit_working_papers
-            (engagement_id, section_id, reference_code, title, procedure, conclusion,
+            (engagement_id, section_id, reference_code, title, `procedure`, conclusion,
              notes, prepared_by, prepared_at, status, risk_rating)
          VALUES (:e, :s, :rc, :t, :p, :c, :n, :pb, NOW(), :st, :r)'
     );

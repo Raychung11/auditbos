@@ -59,7 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $pdo->prepare(
                     'UPDATE audit_working_papers
-                        SET section_id=:sid, reference_code=:rc, title=:t, procedure=:p,
+                        SET section_id=:sid, reference_code=:rc, title=:t, `procedure`=:p,
                             conclusion=:c, notes=:n, status=:s, risk_rating=:r,
                             prepared_by = CASE WHEN status IN ("not_started") AND :s2 <> "not_started"
                                                THEN :uid ELSE prepared_by END,
@@ -77,7 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $pdo->prepare(
                     'INSERT INTO audit_working_papers
-                        (engagement_id, section_id, reference_code, title, procedure,
+                        (engagement_id, section_id, reference_code, title, `procedure`,
                          conclusion, notes, status, risk_rating, prepared_by, prepared_at)
                      VALUES
                         (:eid, :sid, :rc, :t, :p, :c, :n, :s, :r,

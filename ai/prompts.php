@@ -349,7 +349,7 @@ function ai_payload_management_letter(?int $engagementId): string
     $header = ai_engagement_header($engagementId);
 
     $wps = $pdo->prepare(
-        'SELECT wp.reference_code, wp.title, wp.procedure, wp.conclusion,
+        'SELECT wp.reference_code, wp.title, wp.`procedure` AS procedure, wp.conclusion,
                 wp.risk_rating, asec.name AS section_name,
                 (SELECT GROUP_CONCAT(CONCAT("[", arn.severity, "] ", arn.note) SEPARATOR " | ")
                    FROM audit_review_notes arn
