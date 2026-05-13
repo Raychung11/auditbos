@@ -252,6 +252,17 @@ require __DIR__ . '/../includes/header.php';
                         <td class="text-xs"><?= e(datefmt($u['last_login_at'], 'd M Y H:i')) ?></td>
                         <td class="text-right">
                             <div class="flex items-center gap-2 justify-end">
+                                <?php if ($u['status'] === 'active'): ?>
+                                    <form method="post" action="/admin/impersonate.php" class="inline">
+                                        <?= csrf_field() ?>
+                                        <input type="hidden" name="_action" value="start">
+                                        <input type="hidden" name="user_id" value="<?= (int) $u['id'] ?>">
+                                        <button class="text-xs rounded border border-amber-400 text-amber-800 bg-amber-50 px-2 py-1 hover:bg-amber-100"
+                                                title="View the platform as this user">
+                                            Impersonate
+                                        </button>
+                                    </form>
+                                <?php endif; ?>
                                 <?php if ($u['status'] !== 'active'): ?>
                                     <form method="post" class="inline">
                                         <?= csrf_field() ?>

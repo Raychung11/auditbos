@@ -162,6 +162,17 @@ function log_activity(
     ?string $description = null
 ): void {
     try {
+        // When a super admin is impersonating a firm user, tag the
+        // description so the audit trail records who actually performed
+        // the action. user_id stays as the impersonated user — actions
+        // belong to the firm context, not to the platform admin.
+        if (function_exists('is_impersonating') && is_impersonating()) {
+            $real = real_user();
+            $tag = '[impersonated by ' . ($real['name'] ?? 'super_admin')
+                 . ' #' . ($real['id'] ?? '?') . '] ';
+            $description = $tag . ($description ?? '');
+        }
+
         $stmt = db()->prepare(
             'INSERT INTO activity_logs
                 (firm_id, user_id, action, entity_type, entity_id, description, ip_address, user_agent)
