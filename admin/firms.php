@@ -275,6 +275,8 @@ require __DIR__ . '/../includes/header.php';
                             <td><?= e(money((float) $f['credit_balance'])) ?></td>
                             <td><?= badge($f['status']) ?></td>
                             <td class="text-right">
+                                <a href="/admin/firms_topup.php?firm_id=<?= (int) $f['id'] ?>"
+                                   class="text-sm text-emerald-700 hover:underline mr-3">Top up</a>
                                 <a href="/admin/firms.php?action=edit&id=<?= (int) $f['id'] ?>"
                                    class="text-sm text-brand-600 hover:underline">Edit</a>
                             </td>

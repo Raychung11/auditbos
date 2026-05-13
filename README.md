@@ -122,6 +122,33 @@ publish workflow, copy-to-clipboard, raw-text toggle). The working paper view
 has an "AI review" button that invokes `ai_review_working_paper` on the
 current WP.
 
+## Account flows
+
+**Password reset.** `/auth/forgot_password.php` accepts an email, generates a
+single-use 32-byte token, stores its SHA-256 hash + 24-hour expiry in
+`users.password_reset_token`, and either emails a link (when `MAIL_FROM` is
+configured in `db_config.local.php`) or surfaces the link directly on-screen
+for manual relay. `/auth/reset_password.php?token=…` validates the hash,
+accepts a new password, regenerates the session and signs the user in.
+
+**Client portal-user invitations.** From the client edit screen,
+`/firm/client_portal.php` lets firm admins invite portal users. Invitations
+reuse the same token storage as password reset — the invitee lands at
+`/auth/accept_invite.php?token=…` which redirects to `reset_password.php` and
+flips `users.status` from `inactive` → `active` on first password set.
+Resend rotates the token; revoke suspends the account.
+
+**Custom document requests.** `/firm/doc_requests.php?engagement_id=…` is a
+full CRUD page for engagement-level document requests — set title, category,
+due date, status, internal admin notes. Deletes are blocked when files are
+attached.
+
+**Credit wallet.** Super admin records manual top-ups via
+`/admin/firms_topup.php?firm_id=…` (atomic update of `credit_wallet.balance` +
+`credit_transactions` ledger row + mirrored `firms.credit_balance`). Firm
+admins see their wallet at `/firm/wallet.php` with balance, totals, full
+transaction history, and a usage-by-category breakdown.
+
 ## Security
 
 - Prepared statements everywhere (PDO with `ERRMODE_EXCEPTION`,

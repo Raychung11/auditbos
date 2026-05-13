@@ -109,6 +109,50 @@ function human_filesize(int $bytes): string
 }
 
 /**
+ * Build an absolute URL from a path. Honours APP_BASE_URL if configured,
+ * otherwise reconstructs from request headers.
+ */
+function absolute_url(string $path): string
+{
+    $path = '/' . ltrim($path, '/');
+    if (defined('APP_BASE_URL') && APP_BASE_URL !== '') {
+        return rtrim(APP_BASE_URL, '/') . $path;
+    }
+    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https') ? 'https' : 'http';
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    return "{$scheme}://{$host}{$path}";
+}
+
+/**
+ * Generate a cryptographically random token (URL-safe).
+ */
+function random_token(int $bytes = 32): string
+{
+    return rtrim(strtr(base64_encode(random_bytes($bytes)), '+/', '-_'), '=');
+}
+
+/**
+ * Send an email if MAIL_ENABLED, otherwise return the message body so the
+ * caller can surface a manual-relay link in the UI.
+ *
+ * @return array{sent:bool, error?:string}
+ */
+function send_email(string $to, string $subject, string $body): array
+{
+    if (!MAIL_ENABLED) {
+        return ['sent' => false, 'error' => 'mail_disabled'];
+    }
+    $headers = [
+        'MIME-Version: 1.0',
+        'Content-Type: text/plain; charset=UTF-8',
+        'From: ' . sprintf('%s <%s>', MAIL_FROM_NAME, MAIL_FROM),
+    ];
+    $ok = @mail($to, $subject, $body, implode("\r\n", $headers));
+    return $ok ? ['sent' => true] : ['sent' => false, 'error' => 'mail_failed'];
+}
+
+/**
  * Record an entry in the activity_logs table. Never throws.
  */
 function log_activity(

@@ -81,6 +81,12 @@ $nav = [
         'roles' => ['firm_admin','audit_manager','senior_auditor','reviewer'],
         'icon'  => 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2',
     ],
+    [
+        'label' => 'Wallet',
+        'href'  => '/firm/wallet.php',
+        'roles' => ['firm_admin','audit_manager'],
+        'icon'  => 'M3 8l4-4h10l4 4M3 8v10a2 2 0 002 2h14a2 2 0 002-2V8M3 8h18M16 13a2 2 0 100 4 2 2 0 000-4z',
+    ],
 ];
 
 $visible = array_filter($nav, fn($item) => in_array($role, $item['roles'], true));

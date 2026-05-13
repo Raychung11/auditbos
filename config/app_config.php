@@ -68,6 +68,16 @@ if (!defined('AI_ENABLED'))      define('AI_ENABLED',      (bool) AI_API_KEY);
 if (!defined('AI_CREDITS_PER_CALL')) define('AI_CREDITS_PER_CALL', 1.00);
 
 // ---------------------------------------------------------------------
+// Outbound mail. Until SMTP is configured, MAIL_ENABLED stays false and
+// password-reset / invitation flows surface a copyable link in the UI
+// for manual relay (suits internal tooling on shared hosting).
+// ---------------------------------------------------------------------
+if (!defined('MAIL_FROM'))      define('MAIL_FROM',      getenv('MAIL_FROM')      ?: '');
+if (!defined('MAIL_FROM_NAME')) define('MAIL_FROM_NAME', getenv('MAIL_FROM_NAME') ?: APP_NAME);
+if (!defined('MAIL_ENABLED'))   define('MAIL_ENABLED',   (bool) MAIL_FROM);
+if (!defined('TOKEN_TTL_SECONDS')) define('TOKEN_TTL_SECONDS', 60 * 60 * 24); // 24h for reset / invite tokens
+
+// ---------------------------------------------------------------------
 // PHP hardening (no display_errors in prod)
 // ---------------------------------------------------------------------
 ini_set('display_errors', '0');

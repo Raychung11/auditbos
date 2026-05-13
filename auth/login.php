@@ -168,6 +168,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         class="w-full rounded bg-brand-600 hover:bg-brand-700 text-white font-medium py-2 transition">
                     Sign in
                 </button>
+                <div class="text-center">
+                    <a href="/auth/forgot_password.php" class="text-xs text-slate-500 hover:text-brand-600 hover:underline">
+                        Forgot your password?
+                    </a>
+                </div>
             </form>
 
             <p class="text-xs text-slate-400 text-center mt-5">

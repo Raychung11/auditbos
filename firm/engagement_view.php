@@ -236,15 +236,23 @@ require __DIR__ . '/../includes/header.php';
                         / <?= count($docRequests) ?> total
                     </p>
                 </div>
-                <?php if ($canEdit && empty($docRequests)): ?>
-                    <form method="post">
-                        <?= csrf_field() ?>
-                        <input type="hidden" name="_action" value="seed_checklist">
-                        <button class="rounded bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 text-sm">
-                            Seed Default Checklist
-                        </button>
-                    </form>
-                <?php endif; ?>
+                <div class="flex items-center gap-2">
+                    <?php if ($canEdit && empty($docRequests)): ?>
+                        <form method="post" class="inline">
+                            <?= csrf_field() ?>
+                            <input type="hidden" name="_action" value="seed_checklist">
+                            <button class="rounded bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 text-sm">
+                                Seed Default Checklist
+                            </button>
+                        </form>
+                    <?php endif; ?>
+                    <?php if ($canEdit): ?>
+                        <a href="/firm/doc_requests.php?engagement_id=<?= (int) $eng['id'] ?>"
+                           class="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">
+                            Manage requests
+                        </a>
+                    <?php endif; ?>
+                </div>
             </div>
             <?php if (empty($docRequests)): ?>
                 <div class="p-8 text-center text-sm text-slate-500">
