@@ -1,8 +1,14 @@
-# AI service layer is server-side only.
-<IfModule mod_authz_core.c>
-    Require all denied
-</IfModule>
-<IfModule !mod_authz_core.c>
-    Order deny,allow
-    Deny from all
-</IfModule>
+# Allow user-facing pages (index.php, run.php, outputs.php, output_view.php)
+# but block the server-side service includes from being hit directly.
+# These files also self-guard at the top with the AUDITBOS_BOOTSTRAPPED
+# check — this is defence in depth.
+
+<FilesMatch "^(ai_service|prompts)\.php$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order deny,allow
+        Deny from all
+    </IfModule>
+</FilesMatch>
