@@ -37,22 +37,28 @@ if ($role === 'super_admin') {
     $clientId = current_user()['client_id'] ?? null;
     $pending = $received = $engagements = 0;
     if ($clientId) {
-        $stmt = db()->prepare(
-            'SELECT
-                (SELECT COUNT(*) FROM document_requests dr
-                   JOIN engagements e ON e.id = dr.engagement_id
-                  WHERE e.client_id = :cid AND dr.status = "pending") AS pending,
-                (SELECT COUNT(*) FROM document_requests dr
-                   JOIN engagements e ON e.id = dr.engagement_id
-                  WHERE e.client_id = :cid AND dr.status = "received") AS received,
-                (SELECT COUNT(*) FROM engagements WHERE client_id = :cid
-                   AND status NOT IN ("completed","billed","archived")) AS engagements'
+        // One prepared statement per metric: PDO native prepares don't
+        // allow reusing the same named placeholder across subqueries.
+        $countStmt = function (string $sql) use ($clientId): int {
+            $s = db()->prepare($sql);
+            $s->execute([':cid' => $clientId]);
+            return (int) $s->fetchColumn();
+        };
+        $pending = $countStmt(
+            'SELECT COUNT(*) FROM document_requests dr
+               JOIN engagements e ON e.id = dr.engagement_id
+              WHERE e.client_id = :cid AND dr.status = "pending"'
         );
-        $stmt->execute([':cid' => $clientId]);
-        $row = $stmt->fetch() ?: [];
-        $pending     = (int) ($row['pending']     ?? 0);
-        $received    = (int) ($row['received']    ?? 0);
-        $engagements = (int) ($row['engagements'] ?? 0);
+        $received = $countStmt(
+            'SELECT COUNT(*) FROM document_requests dr
+               JOIN engagements e ON e.id = dr.engagement_id
+              WHERE e.client_id = :cid AND dr.status = "received"'
+        );
+        $engagements = $countStmt(
+            'SELECT COUNT(*) FROM engagements
+              WHERE client_id = :cid
+                AND status NOT IN ("completed","billed","archived")'
+        );
     }
     $cards = [
         ['label' => 'Documents Pending',  'value' => $pending,     'href' => '/documents/index.php', 'tone' => 'amber'],
@@ -61,36 +67,51 @@ if ($role === 'super_admin') {
     ];
 
 } else {
-    // Firm admin / managers / auditors / reviewers
-    $stmt = db()->prepare(
-        'SELECT
-            (SELECT COUNT(*) FROM engagements WHERE firm_id = :fid
-                AND status NOT IN ("completed","billed","archived")) AS active_eng,
-            (SELECT COUNT(*) FROM engagements WHERE firm_id = :fid AND status = "partner_review") AS partner_review,
-            (SELECT COUNT(*) FROM engagements WHERE firm_id = :fid
-                AND deadline IS NOT NULL AND deadline < CURDATE()
-                AND status NOT IN ("completed","billed","archived")) AS overdue,
-            (SELECT COUNT(*) FROM document_requests dr
-                JOIN engagements e ON e.id = dr.engagement_id
-               WHERE e.firm_id = :fid AND dr.status = "pending") AS pending_docs,
-            (SELECT COUNT(*) FROM audit_working_papers wp
-                JOIN engagements e ON e.id = wp.engagement_id
-               WHERE e.firm_id = :fid AND wp.status = "pending_review") AS pending_review,
-            (SELECT COUNT(*) FROM audit_review_notes arn
-                JOIN audit_working_papers wp ON wp.id = arn.working_paper_id
-                JOIN engagements e ON e.id = wp.engagement_id
-               WHERE e.firm_id = :fid AND arn.status = "open") AS open_notes'
-    );
-    $stmt->execute([':fid' => $firmId]);
-    $k = $stmt->fetch() ?: [];
+    // Firm admin / managers / auditors / reviewers — one prepared
+    // statement per metric: PDO with EMULATE_PREPARES=false rejects the
+    // same named placeholder repeated across subqueries.
+    $countStmt = function (string $sql) use ($firmId): int {
+        $s = db()->prepare($sql);
+        $s->execute([':fid' => $firmId]);
+        return (int) $s->fetchColumn();
+    };
 
     $cards = [
-        ['label' => 'Active Engagements', 'value' => (int)($k['active_eng']     ?? 0), 'href' => '/firm/engagements.php',       'tone' => 'brand'],
-        ['label' => 'Partner Review',     'value' => (int)($k['partner_review'] ?? 0), 'href' => '/firm/engagements.php?status=partner_review', 'tone' => 'purple'],
-        ['label' => 'Overdue Jobs',       'value' => (int)($k['overdue']        ?? 0), 'href' => '/firm/engagements.php',       'tone' => 'rose'],
-        ['label' => 'Pending Documents',  'value' => (int)($k['pending_docs']   ?? 0), 'href' => '/documents/index.php',        'tone' => 'amber'],
-        ['label' => 'WPs Pending Review', 'value' => (int)($k['pending_review'] ?? 0), 'href' => '/audit/working_papers.php?status=pending_review', 'tone' => 'blue'],
-        ['label' => 'Open Review Notes',  'value' => (int)($k['open_notes']     ?? 0), 'href' => '/audit/working_papers.php',   'tone' => 'orange'],
+        ['label' => 'Active Engagements', 'tone' => 'brand', 'href' => '/firm/engagements.php',
+         'value' => $countStmt(
+            'SELECT COUNT(*) FROM engagements
+              WHERE firm_id = :fid AND status NOT IN ("completed","billed","archived")'
+         )],
+        ['label' => 'Partner Review', 'tone' => 'purple', 'href' => '/firm/engagements.php?status=partner_review',
+         'value' => $countStmt(
+            'SELECT COUNT(*) FROM engagements WHERE firm_id = :fid AND status = "partner_review"'
+         )],
+        ['label' => 'Overdue Jobs', 'tone' => 'rose', 'href' => '/firm/engagements.php',
+         'value' => $countStmt(
+            'SELECT COUNT(*) FROM engagements
+              WHERE firm_id = :fid
+                AND deadline IS NOT NULL AND deadline < CURDATE()
+                AND status NOT IN ("completed","billed","archived")'
+         )],
+        ['label' => 'Pending Documents', 'tone' => 'amber', 'href' => '/documents/index.php',
+         'value' => $countStmt(
+            'SELECT COUNT(*) FROM document_requests dr
+               JOIN engagements e ON e.id = dr.engagement_id
+              WHERE e.firm_id = :fid AND dr.status = "pending"'
+         )],
+        ['label' => 'WPs Pending Review', 'tone' => 'blue', 'href' => '/audit/working_papers.php?status=pending_review',
+         'value' => $countStmt(
+            'SELECT COUNT(*) FROM audit_working_papers wp
+               JOIN engagements e ON e.id = wp.engagement_id
+              WHERE e.firm_id = :fid AND wp.status = "pending_review"'
+         )],
+        ['label' => 'Open Review Notes', 'tone' => 'orange', 'href' => '/audit/working_papers.php',
+         'value' => $countStmt(
+            'SELECT COUNT(*) FROM audit_review_notes arn
+               JOIN audit_working_papers wp ON wp.id = arn.working_paper_id
+               JOIN engagements e ON e.id = wp.engagement_id
+              WHERE e.firm_id = :fid AND arn.status = "open"'
+         )],
     ];
 }
 
