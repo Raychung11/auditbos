@@ -285,6 +285,8 @@ require __DIR__ . '/../includes/header.php';
                                    class="text-sm text-slate-700 hover:underline mr-3">Users</a>
                                 <a href="/admin/firms_topup.php?firm_id=<?= (int) $f['id'] ?>"
                                    class="text-sm text-emerald-700 hover:underline mr-3">Top up</a>
+                                <a href="/admin/seed_demo.php?firm_id=<?= (int) $f['id'] ?>"
+                                   class="text-sm text-purple-700 hover:underline mr-3">Seed</a>
                                 <a href="/admin/firms.php?action=edit&id=<?= (int) $f['id'] ?>"
                                    class="text-sm text-brand-600 hover:underline">Edit</a>
                             </td>
