@@ -233,6 +233,12 @@ require __DIR__ . '/../includes/header.php';
                 </button>
                 <a href="/admin/firms.php"
                    class="rounded border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50">Cancel</a>
+                <?php if ($mode === 'edit'): ?>
+                    <a href="/admin/firm_users.php?firm_id=<?= (int) $record['id'] ?>"
+                       class="ml-auto rounded border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50">
+                        Manage firm users &rarr;
+                    </a>
+                <?php endif; ?>
             </div>
         </form>
     </div>
@@ -275,6 +281,8 @@ require __DIR__ . '/../includes/header.php';
                             <td><?= e(money((float) $f['credit_balance'])) ?></td>
                             <td><?= badge($f['status']) ?></td>
                             <td class="text-right">
+                                <a href="/admin/firm_users.php?firm_id=<?= (int) $f['id'] ?>"
+                                   class="text-sm text-slate-700 hover:underline mr-3">Users</a>
                                 <a href="/admin/firms_topup.php?firm_id=<?= (int) $f['id'] ?>"
                                    class="text-sm text-emerald-700 hover:underline mr-3">Top up</a>
                                 <a href="/admin/firms.php?action=edit&id=<?= (int) $f['id'] ?>"
