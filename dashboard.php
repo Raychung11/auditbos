@@ -167,6 +167,134 @@ require __DIR__ . '/includes/header.php';
     <?php endforeach; ?>
 </div>
 
+<?php
+// Partner-level panels (high-risk WPs, AI alerts, top performers)
+// Loaded only for partner / firm-admin / audit-manager / reviewer.
+$showPartnerPanels = $firmId && in_array($role, ['firm_admin','audit_manager','reviewer'], true);
+if ($showPartnerPanels) {
+    require_once __DIR__ . '/includes/kpi.php';
+    $highRiskWps = kpi_high_risk_wps($firmId, 8);
+    $aiAlerts    = kpi_ai_alerts($firmId, 5);
+    $kpiRows     = kpi_for_firm($firmId);
+    $topPerformers = array_slice(array_filter($kpiRows,
+        static fn($r) => ($r['productivity_score'] ?? 0) > 0), 0, 5);
+}
+?>
+
+<?php if (!empty($showPartnerPanels)): ?>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+        <!-- High-risk working papers -->
+        <div class="lg:col-span-2 bg-white rounded-lg border border-slate-200 overflow-hidden">
+            <div class="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
+                <h3 class="font-semibold text-slate-900">High-risk areas</h3>
+                <a href="/audit/working_papers.php" class="text-sm text-brand-600 hover:underline">All working papers</a>
+            </div>
+            <?php if (empty($highRiskWps)): ?>
+                <div class="p-8 text-center text-sm text-slate-500">No high-risk working papers right now.</div>
+            <?php else: ?>
+                <table class="table-app">
+                    <thead>
+                        <tr>
+                            <th>Engagement</th>
+                            <th>Working paper</th>
+                            <th>Risk</th>
+                            <th>Status</th>
+                            <th class="text-right">Open notes</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    <?php foreach ($highRiskWps as $w): ?>
+                        <tr>
+                            <td>
+                                <div class="text-sm font-medium"><?= e($w['company_name']) ?></div>
+                                <div class="text-xs text-slate-500"><?= e($w['financial_year']) ?></div>
+                            </td>
+                            <td>
+                                <div class="text-xs text-slate-500"><?= e($w['section_name'] ?? '') ?></div>
+                                <div class="text-sm">
+                                    <?php if ($w['reference_code']): ?>
+                                        <span class="font-mono text-xs text-slate-500"><?= e($w['reference_code']) ?></span>
+                                    <?php endif; ?>
+                                    <?= e($w['title']) ?>
+                                </div>
+                            </td>
+                            <td><?= $w['risk_rating'] ? badge($w['risk_rating']) : '<span class="text-xs text-slate-400">—</span>' ?></td>
+                            <td><?= badge($w['status']) ?></td>
+                            <td class="text-right tabular-nums <?= $w['open_notes'] > 0 ? 'text-rose-700 font-medium' : '' ?>">
+                                <?= (int) $w['open_notes'] ?>
+                            </td>
+                            <td class="text-right">
+                                <a href="/audit/working_paper_view.php?id=<?= (int) $w['id'] ?>"
+                                   class="text-sm text-brand-600 hover:underline">Open</a>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
+        </div>
+
+        <!-- AI alerts + top performers -->
+        <div class="space-y-6">
+            <div class="bg-white rounded-lg border border-slate-200">
+                <div class="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
+                    <h3 class="font-semibold text-slate-900">AI alerts</h3>
+                    <a href="/ai/outputs.php?status=draft" class="text-xs text-brand-600 hover:underline">All drafts</a>
+                </div>
+                <?php if (empty($aiAlerts)): ?>
+                    <div class="p-5 text-center text-sm text-slate-500">No AI drafts pending review.</div>
+                <?php else: ?>
+                    <ul class="divide-y divide-slate-200">
+                    <?php foreach ($aiAlerts as $a): ?>
+                        <li class="px-5 py-3">
+                            <a href="/ai/output_view.php?id=<?= (int) $a['id'] ?>"
+                               class="text-sm font-medium text-slate-800 hover:text-brand-700 hover:underline block">
+                                <?= e($a['title'] ?? $a['output_type']) ?>
+                            </a>
+                            <div class="text-xs text-slate-500">
+                                <?= e($a['company_name'] ?? 'No engagement') ?>
+                                · <?= e(datefmt($a['created_at'], 'd M H:i')) ?>
+                            </div>
+                        </li>
+                    <?php endforeach; ?>
+                    </ul>
+                <?php endif; ?>
+            </div>
+
+            <div class="bg-white rounded-lg border border-slate-200">
+                <div class="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
+                    <h3 class="font-semibold text-slate-900">Top performers</h3>
+                    <a href="/firm/kpi.php" class="text-xs text-brand-600 hover:underline">Full KPI</a>
+                </div>
+                <?php if (empty($topPerformers)): ?>
+                    <div class="p-5 text-center text-sm text-slate-500">No staff activity yet.</div>
+                <?php else: ?>
+                    <ul class="divide-y divide-slate-200">
+                    <?php foreach ($topPerformers as $p):
+                        $score = (float) $p['productivity_score'];
+                    ?>
+                        <li class="px-5 py-3 flex items-center justify-between">
+                            <div>
+                                <div class="text-sm font-medium"><?= e($p['name']) ?></div>
+                                <div class="text-xs text-slate-500">
+                                    <?= e(ucwords(str_replace('_',' ',$p['role']))) ?>
+                                    · <?= (int) $p['wp_prepared'] ?> WPs
+                                    · <?= (int) $p['notes_cleared'] ?> cleared
+                                </div>
+                            </div>
+                            <span class="text-sm font-semibold tabular-nums text-brand-700">
+                                <?= number_format($score, 0) ?>
+                            </span>
+                        </li>
+                    <?php endforeach; ?>
+                    </ul>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+<?php endif; ?>
+
 <?php if ($role !== 'super_admin' && $role !== 'client_user'): ?>
     <!-- Recent engagements -->
     <div class="bg-white rounded-lg border border-slate-200 overflow-hidden">

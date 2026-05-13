@@ -58,6 +58,12 @@ $nav = [
         'icon'  => 'M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87M16 3.13a4 4 0 010 7.75M8 3.13a4 4 0 000 7.75M12 12a4 4 0 100-8 4 4 0 000 8z',
     ],
     [
+        'label' => 'Staff KPI',
+        'href'  => '/firm/kpi.php',
+        'roles' => ['firm_admin','audit_manager','reviewer'],
+        'icon'  => 'M3 21h2l1-4h4l1 4h2M14 21h2l1-7h4l1 7h2M5 13l3-8 3 6M14 14l3-9 3 4',
+    ],
+    [
         'label' => 'Clients',
         'href'  => '/firm/clients.php',
         'roles' => ['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer'],

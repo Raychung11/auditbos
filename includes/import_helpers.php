@@ -4,12 +4,10 @@
  *
  * Shared helpers for the accounting-data import module:
  *   - CSV parsing (BOM-safe, delimiter auto-detect)
+ *   - XLSX parsing (ZipArchive + SimpleXML, no Composer needed)
  *   - Header normalisation
  *   - Mapping persistence (import_mappings)
  *   - Safe upload + storage of the source file under /uploads_private
- *
- * The whole module is CSV-only for v1. Users save-as CSV from Excel.
- * .xlsx native parsing will land in a follow-up (PhpSpreadsheet).
  */
 
 declare(strict_types=1);
@@ -106,7 +104,323 @@ function parse_csv_file(string $absPath, int $maxRows = 50000): array
 }
 
 /**
- * Best-guess mapping: for every target field, pick the CSV column whose
+ * Parse an XLSX file natively (ZipArchive + SimpleXML — no Composer).
+ *
+ * Reads the first worksheet. Resolves shared strings, picks up inline
+ * strings, returns numeric values as their canonical numeric string,
+ * and returns ISO-format dates for cells that Excel marked as dates.
+ *
+ * Limitations (deliberate, v1):
+ *   - Only the first sheet is read.
+ *   - Formulas: returns the cached `<v>` value if present, otherwise empty.
+ *   - Styles: only the bundled "default" Excel date formats are detected
+ *     (codes 14–22, 27–36, 45–47, 50–58) plus any custom numFmt whose
+ *     format-code contains a `d`, `m`, or `y` placeholder.
+ *
+ * @return array{headers: array<int,string>, rows: array<int, array<int,string>>}
+ */
+function parse_xlsx_file(string $absPath, int $maxRows = 50000): array
+{
+    if (!class_exists('ZipArchive')) {
+        throw new RuntimeException('PHP ZipArchive extension is required to read .xlsx files.');
+    }
+    if (!is_file($absPath) || !is_readable($absPath)) {
+        throw new RuntimeException('Cannot read uploaded XLSX.');
+    }
+
+    $zip = new ZipArchive();
+    if ($zip->open($absPath) !== true) {
+        throw new RuntimeException('Uploaded file is not a valid .xlsx (zip) archive.');
+    }
+
+    // Suppress libxml entity-expansion warnings (XXE protection).
+    $prev = libxml_use_internal_errors(true);
+    // PHP 8+ defaults are safe; keep this explicit for clarity.
+    if (function_exists('libxml_disable_entity_loader')) {
+        // No-op on PHP 8.x, retained for older environments.
+        @libxml_disable_entity_loader(true);
+    }
+
+    try {
+        // 1. Shared strings (string cells reference these by index).
+        $shared = [];
+        if (($sst = $zip->getFromName('xl/sharedStrings.xml')) !== false && $sst !== '') {
+            $sx = simplexml_load_string($sst);
+            if ($sx) {
+                foreach ($sx->si as $si) {
+                    $text = '';
+                    // Plain string: <si><t>foo</t></si>
+                    if (isset($si->t)) {
+                        $text = (string) $si->t;
+                    } else {
+                        // Rich text: <si><r><t>part1</t></r><r><t>part2</t></r></si>
+                        foreach ($si->r as $r) {
+                            $text .= (string) $r->t;
+                        }
+                    }
+                    $shared[] = $text;
+                }
+            }
+        }
+
+        // 2. Style index → "is this a date?" — covers built-in formats
+        //    and any custom numFmt whose code looks date-like.
+        $dateStyleIdx = xlsx_date_style_indexes($zip);
+
+        // 3. Workbook → first sheet's filename inside the zip.
+        $sheetXml = null;
+        if (($wb = $zip->getFromName('xl/workbook.xml')) !== false) {
+            $wbx = simplexml_load_string($wb);
+            if ($wbx && isset($wbx->sheets->sheet[0])) {
+                $rels = $zip->getFromName('xl/_rels/workbook.xml.rels');
+                if ($rels !== false) {
+                    $rx = simplexml_load_string($rels);
+                    if ($rx) {
+                        $sheet = $wbx->sheets->sheet[0];
+                        $rid   = (string) $sheet->attributes('http://schemas.openxmlformats.org/officeDocument/2006/relationships')->id;
+                        foreach ($rx->Relationship as $rel) {
+                            if ((string) $rel['Id'] === $rid) {
+                                $target = (string) $rel['Target'];
+                                // Target is relative to xl/ — strip a leading slash if present
+                                $target = ltrim($target, '/');
+                                $sheetXml = strpos($target, 'xl/') === 0 ? $target : 'xl/' . $target;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if ($sheetXml === null) {
+            $sheetXml = 'xl/worksheets/sheet1.xml';
+        }
+
+        // 4. Parse the sheet. Use XMLReader to keep memory low for big sheets.
+        $sheetBlob = $zip->getFromName($sheetXml);
+        if ($sheetBlob === false) {
+            throw new RuntimeException('XLSX sheet stream not found: ' . $sheetXml);
+        }
+        $reader = new XMLReader();
+        $reader->XML($sheetBlob, 'UTF-8', LIBXML_NONET | LIBXML_COMPACT);
+
+        $allRows = [];
+        $currentRow = null;
+        $currentRowIdx = 0;
+        while ($reader->read()) {
+            if ($reader->nodeType === XMLReader::ELEMENT && $reader->name === 'row') {
+                $currentRow = [];
+            }
+            if ($reader->nodeType === XMLReader::ELEMENT && $reader->name === 'c' && $currentRow !== null) {
+                $ref   = $reader->getAttribute('r')   ?? '';   // e.g. "B4"
+                $type  = $reader->getAttribute('t')   ?? 'n';  // n|s|str|inlineStr|b|e|d
+                $style = (int) ($reader->getAttribute('s') ?? -1);
+                $colIdx = xlsx_col_index($ref);
+
+                // Drill into <v> / <is><t> child elements.
+                $rawValue = '';
+                if (!$reader->isEmptyElement) {
+                    $inner = new XMLReader();
+                    $inner->XML($reader->readOuterXml(), 'UTF-8', LIBXML_NONET | LIBXML_COMPACT);
+                    while ($inner->read()) {
+                        if ($inner->nodeType === XMLReader::ELEMENT) {
+                            if ($inner->name === 'v') {
+                                $rawValue = (string) $inner->readString();
+                            } elseif ($inner->name === 't' && $type === 'inlineStr') {
+                                $rawValue = (string) $inner->readString();
+                            }
+                        }
+                    }
+                    $inner->close();
+                }
+
+                $value = xlsx_resolve_cell($rawValue, $type, $style, $shared, $dateStyleIdx);
+                if ($colIdx !== null) {
+                    $currentRow[$colIdx] = $value;
+                }
+            }
+            if ($reader->nodeType === XMLReader::END_ELEMENT && $reader->name === 'row' && $currentRow !== null) {
+                // Compact sparse row (Excel skips empty cells).
+                if (!empty($currentRow)) {
+                    ksort($currentRow);
+                    $maxCol = max(array_keys($currentRow));
+                    $compact = [];
+                    for ($i = 0; $i <= $maxCol; $i++) {
+                        $compact[] = $currentRow[$i] ?? '';
+                    }
+                    $allRows[] = $compact;
+                    $currentRowIdx++;
+                    if ($currentRowIdx > $maxRows + 1) {
+                        break;
+                    }
+                }
+                $currentRow = null;
+            }
+        }
+        $reader->close();
+        $zip->close();
+    } finally {
+        libxml_use_internal_errors($prev);
+    }
+
+    if (empty($allRows)) {
+        return ['headers' => [], 'rows' => []];
+    }
+
+    // First non-empty row is headers; the rest are data rows.
+    $headers = array_shift($allRows);
+    $headers = array_map(static fn($h) => trim((string) $h), $headers);
+
+    // Skip blank trailing rows.
+    $rows = [];
+    foreach ($allRows as $r) {
+        $r = array_map(static fn($v) => trim((string) $v), $r);
+        if (count(array_filter($r, static fn($v) => $v !== '')) === 0) {
+            continue;
+        }
+        $rows[] = $r;
+    }
+    return ['headers' => $headers, 'rows' => $rows];
+}
+
+/**
+ * Convert "B4" → 1 (zero-indexed column). Returns null for malformed refs.
+ */
+function xlsx_col_index(string $cellRef): ?int
+{
+    if (!preg_match('/^([A-Z]+)\d+$/', $cellRef, $m)) {
+        return null;
+    }
+    $letters = $m[1];
+    $col = 0;
+    for ($i = 0, $n = strlen($letters); $i < $n; $i++) {
+        $col = $col * 26 + (ord($letters[$i]) - ord('A') + 1);
+    }
+    return $col - 1;
+}
+
+/**
+ * Resolve a cell's raw value to a display string.
+ *
+ * @param array<int,string> $shared
+ * @param array<int,bool>   $dateStyleIdx
+ */
+function xlsx_resolve_cell(string $raw, string $type, int $style,
+    array $shared, array $dateStyleIdx): string
+{
+    if ($raw === '') {
+        return '';
+    }
+    switch ($type) {
+        case 's':                                    // shared string
+            $idx = (int) $raw;
+            return $shared[$idx] ?? '';
+        case 'str':                                  // inline cached formula result
+        case 'inlineStr':
+            return $raw;
+        case 'b':                                    // boolean
+            return $raw === '1' ? 'TRUE' : 'FALSE';
+        case 'e':                                    // error
+            return '';
+        case 'd':                                    // ISO date stored as-is
+            return $raw;
+        case 'n':                                    // number
+        default:
+            // Heuristic: numeric cell styled as a date → convert.
+            if (isset($dateStyleIdx[$style]) && is_numeric($raw)) {
+                return xlsx_serial_to_iso((float) $raw);
+            }
+            return $raw;
+    }
+}
+
+/**
+ * Read xl/styles.xml and return [styleIndex => true] for styles whose
+ * numFmt is a date format (built-in or custom-with-date-tokens).
+ *
+ * @return array<int, true>
+ */
+function xlsx_date_style_indexes(ZipArchive $zip): array
+{
+    $blob = $zip->getFromName('xl/styles.xml');
+    if ($blob === false || $blob === '') {
+        return [];
+    }
+    $sx = simplexml_load_string($blob);
+    if (!$sx) {
+        return [];
+    }
+
+    // Excel built-in date formats (numFmtId values).
+    $builtIn = [14,15,16,17,18,19,20,21,22,
+                27,28,29,30,31,32,33,34,35,36,
+                45,46,47,
+                50,51,52,53,54,55,56,57,58];
+
+    // Pick up any custom numFmts with d/m/y in their formatCode.
+    $custom = [];
+    if (isset($sx->numFmts) && isset($sx->numFmts->numFmt)) {
+        foreach ($sx->numFmts->numFmt as $nf) {
+            $code = (string) $nf['formatCode'];
+            // Strip quoted literals so "12" doesn't trick us.
+            $stripped = preg_replace('/"[^"]*"/', '', $code) ?? $code;
+            if (preg_match('/[dmyDMY]/', $stripped)
+                && !preg_match('/^(General|@|0|#|\$)/', trim($code))) {
+                $custom[(int) $nf['numFmtId']] = true;
+            }
+        }
+    }
+
+    $dateNumFmtIds = array_flip($builtIn) + $custom;
+
+    // cellXfs is an ordered list — its index is the cell's `s` attribute.
+    $map = [];
+    if (isset($sx->cellXfs) && isset($sx->cellXfs->xf)) {
+        $i = 0;
+        foreach ($sx->cellXfs->xf as $xf) {
+            $nfId = (int) $xf['numFmtId'];
+            $apply = (string) $xf['applyNumberFormat'];
+            // applyNumberFormat=1 OR a built-in date numFmtId is treated as a date.
+            if (isset($dateNumFmtIds[$nfId])) {
+                $map[$i] = true;
+            }
+            $i++;
+        }
+    }
+    return $map;
+}
+
+/**
+ * Convert an Excel serial date (days since 1900-01-01, with the 1900
+ * leap-year bug) to an ISO date string.
+ */
+function xlsx_serial_to_iso(float $serial): string
+{
+    if ($serial < 1) {
+        return '';
+    }
+    // Excel treats 1900-02-29 as a real date (it isn't). Adjust for that.
+    $ts = ($serial - 25569) * 86400;
+    if ($serial < 60) {
+        $ts = ($serial - 25568) * 86400;
+    }
+    return gmdate('Y-m-d', (int) $ts);
+}
+
+/**
+ * Top-level dispatch: pick parser based on extension. Same return shape
+ * as parse_csv_file() / parse_xlsx_file().
+ */
+function parse_spreadsheet_file(string $absPath, string $originalName, int $maxRows = 50000): array
+{
+    $ext = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+    if ($ext === 'xlsx') {
+        return parse_xlsx_file($absPath, $maxRows);
+    }
+    return parse_csv_file($absPath, $maxRows);
+}
+
+/**
+ * Best-guess mapping: for every target field, pick the column whose
  * header contains the strongest hint match. Returns target_key => column_index.
  *
  * @param array<int, string> $headers
@@ -218,6 +532,16 @@ function parse_date_value(?string $raw): ?string
         return sprintf('%04d-%02d-%02d', $y, $mo, $d);
     }
 
+    // Excel serial date (days since 1900-01-01). Range 25569 (1970) – 80000
+    // (year 2119) covers any plausible audit period without false-positives
+    // on small integers like quantities.
+    if (preg_match('/^\d+(\.\d+)?$/', $s)) {
+        $serial = (float) $s;
+        if ($serial >= 25569 && $serial < 80000) {
+            return xlsx_serial_to_iso($serial);
+        }
+    }
+
     // Fallback: strtotime
     $ts = strtotime($s);
     return $ts ? date('Y-m-d', $ts) : null;
@@ -258,8 +582,11 @@ function stash_import_upload(array $file, int $firmId): array
     }
     $orig = (string) $file['name'];
     $ext  = strtolower(pathinfo($orig, PATHINFO_EXTENSION));
-    if ($ext !== 'csv' && $ext !== 'txt') {
-        throw new RuntimeException('Only .csv files are accepted in v1. Save the Excel sheet as CSV.');
+    if (!in_array($ext, ['csv','txt','xlsx'], true)) {
+        throw new RuntimeException('Only .csv and .xlsx files are accepted.');
+    }
+    if ($ext === 'xlsx' && !class_exists('ZipArchive')) {
+        throw new RuntimeException('PHP ZipArchive extension is required to read .xlsx files. Save as CSV or contact your hosting admin.');
     }
     $dir = UPLOADS_PRIVATE . '/' . $firmId . '/imports';
     if (!is_dir($dir) && !mkdir($dir, 0750, true) && !is_dir($dir)) {

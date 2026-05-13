@@ -61,9 +61,9 @@ if ($step === '1' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
     try {
         $stash  = stash_import_upload($_FILES['file'] ?? [], $firmId);
-        $parsed = parse_csv_file($stash['abs']);
+        $parsed = parse_spreadsheet_file($stash['abs'], $_FILES['file']['name'] ?? '');
         if (empty($parsed['headers'])) {
-            throw new RuntimeException('CSV had no header row.');
+            throw new RuntimeException('Spreadsheet had no header row.');
         }
 
         $pdo->prepare(
@@ -101,7 +101,7 @@ if ($step === '3' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $replaceBatches = !empty($_POST['replace_source']);
 
     $abs    = UPLOADS_PRIVATE . '/' . $batch['relative_path'];
-    $parsed = parse_csv_file($abs);
+    $parsed = parse_spreadsheet_file($abs, $batch['original_filename'] ?? '');
     $specs  = import_field_specs()['general_ledger'];
 
     $mapping = [];
@@ -211,7 +211,7 @@ if ($step === '3' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 if ($step === '2' && $batchId > 0) {
     $batch  = gl_load_batch($pdo, $batchId, $firmId);
     $abs    = UPLOADS_PRIVATE . '/' . $batch['relative_path'];
-    $parsed = parse_csv_file($abs, 200);
+    $parsed = parse_spreadsheet_file($abs, $batch['original_filename'] ?? '', 200);
     $headers = $parsed['headers'];
     $previewRows = array_slice($parsed['rows'], 0, 5);
 
@@ -342,13 +342,14 @@ require __DIR__ . '/../includes/header.php';
     <input type="hidden" name="engagement_id" value="<?= (int) $engagementId ?>">
 
     <label class="block">
-        <span class="text-sm font-medium text-slate-700">CSV file *</span>
-        <input type="file" name="file" accept=".csv,.txt,text/csv" required
+        <span class="text-sm font-medium text-slate-700">Spreadsheet file *</span>
+        <input type="file" name="file"
+               accept=".csv,.txt,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required
                class="mt-1 block w-full text-sm text-slate-700
                       file:mr-3 file:py-2 file:px-3 file:rounded file:border-0
                       file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100">
         <span class="text-xs text-slate-500 mt-1 block">
-            Save your accounting GL export as CSV. Max <?= e(human_filesize(UPLOAD_MAX_BYTES)) ?>.
+            .xlsx or .csv. Excel dates and serial numbers handled. Max <?= e(human_filesize(UPLOAD_MAX_BYTES)) ?>.
         </span>
     </label>
 
