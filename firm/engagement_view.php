@@ -155,6 +155,16 @@ $aiStmt = $pdo->prepare(
 $aiStmt->execute([':eid' => $id]);
 $aiOutputs = $aiStmt->fetchAll();
 
+// Accounting data summary (TB rows per period + GL row count)
+$dataStmt = $pdo->prepare(
+    'SELECT
+        (SELECT COUNT(*) FROM trial_balances WHERE engagement_id = :e AND period = "current") AS tb_current,
+        (SELECT COUNT(*) FROM trial_balances WHERE engagement_id = :e2 AND period = "prior")   AS tb_prior,
+        (SELECT COUNT(*) FROM general_ledgers WHERE engagement_id = :e3) AS gl_rows'
+);
+$dataStmt->execute([':e'=>$id, ':e2'=>$id, ':e3'=>$id]);
+$dataSummary = $dataStmt->fetch() ?: ['tb_current'=>0, 'tb_prior'=>0, 'gl_rows'=>0];
+
 $pageTitle = $eng['company_name'] . ' · ' . $eng['financial_year'];
 require __DIR__ . '/../includes/header.php';
 ?>
@@ -335,8 +345,36 @@ require __DIR__ . '/../includes/header.php';
         </div>
     </div>
 
-    <!-- AI panel (right column) -->
+    <!-- Right column: data + AI -->
     <div class="space-y-6">
+
+        <!-- Accounting data -->
+        <div class="bg-white rounded-lg border border-slate-200">
+            <div class="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
+                <h3 class="font-semibold text-slate-900">Accounting Data</h3>
+                <a href="/import/index.php?engagement_id=<?= (int) $eng['id'] ?>"
+                   class="text-sm text-brand-600 hover:underline">Import</a>
+            </div>
+            <div class="p-4 space-y-2 text-sm">
+                <div class="flex items-center justify-between">
+                    <span class="text-slate-600">TB rows (current)</span>
+                    <span class="font-medium"><?= (int) $dataSummary['tb_current'] ?></span>
+                </div>
+                <div class="flex items-center justify-between">
+                    <span class="text-slate-600">TB rows (prior)</span>
+                    <span class="font-medium"><?= (int) $dataSummary['tb_prior'] ?></span>
+                </div>
+                <div class="flex items-center justify-between">
+                    <span class="text-slate-600">GL transactions</span>
+                    <span class="font-medium"><?= number_format((int) $dataSummary['gl_rows']) ?></span>
+                </div>
+                <a href="/import/trial_balance_view.php?engagement_id=<?= (int) $eng['id'] ?>"
+                   class="mt-2 block text-center rounded border border-slate-300 px-3 py-1.5 text-xs hover:bg-slate-50">
+                    View trial balance &amp; variance
+                </a>
+            </div>
+        </div>
+
         <div class="bg-white rounded-lg border border-slate-200">
             <div class="px-5 py-3 border-b border-slate-200">
                 <h3 class="font-semibold text-slate-900">AI Assistant</h3>

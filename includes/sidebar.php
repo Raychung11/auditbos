@@ -64,6 +64,12 @@ $nav = [
         'icon'  => 'M12 4v16m8-8H4',
     ],
     [
+        'label' => 'Import Data',
+        'href'  => '/import/index.php',
+        'roles' => ['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer'],
+        'icon'  => 'M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5-5m0 0l5 5m-5-5v12',
+    ],
+    [
         'label' => 'AI Assistant',
         'href'  => '/ai/index.php',
         'roles' => ['firm_admin','audit_manager','senior_auditor','reviewer'],
