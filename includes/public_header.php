@@ -18,11 +18,11 @@ if (!defined('AUDITBOS_BOOTSTRAPPED')) {
 }
 
 $pageTitle = $pageTitle ?? APP_NAME;
-$pageDescription = $pageDescription ?? 'AI-powered Business Operating System for audit firms — workflow automation, client document collection, accounting data import, AI assistant, working papers, partner review and staff KPIs in one platform.';
+$pageDescription = $pageDescription ?? 'AI Audit BOS gathers documents, imports accounting data, drafts working papers, and helps your team sign off faster. Built for audit firms in Malaysia and Southeast Asia.';
 $isLoggedIn = is_logged_in();
 ?>
 <!doctype html>
-<html lang="en">
+<html lang="en" class="scroll-smooth">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -36,13 +36,8 @@ $isLoggedIn = is_logged_in();
                 extend: {
                     colors: {
                         brand: {
-                            50:  '#eef2ff',
-                            100: '#e0e7ff',
-                            200: '#c7d2fe',
-                            500: '#4f46e5',
-                            600: '#4338ca',
-                            700: '#3730a3',
-                            900: '#1e1b4b',
+                            50:'#eef2ff',100:'#e0e7ff',200:'#c7d2fe',
+                            500:'#4f46e5',600:'#4338ca',700:'#3730a3',900:'#1e1b4b',
                         }
                     },
                     fontFamily: {
@@ -54,7 +49,22 @@ $isLoggedIn = is_logged_in();
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+    <style>
+        /* Subtle floating animation on the hero blob */
+        @keyframes float-slow { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
+        .anim-float { animation: float-slow 8s ease-in-out infinite; }
+        /* Fade-up reveal — toggled by IntersectionObserver */
+        .reveal { opacity: 0; transform: translateY(16px); transition: opacity .6s ease-out, transform .6s ease-out; }
+        .reveal.is-visible { opacity: 1; transform: translateY(0); }
+        /* Tab transitions */
+        .role-pane[hidden] { display: none; }
+        details > summary { list-style: none; cursor: pointer; }
+        details > summary::-webkit-details-marker { display: none; }
+        details[open] .faq-icon { transform: rotate(45deg); }
+        .faq-icon { transition: transform .2s ease-out; }
+    </style>
 </head>
 <body class="bg-white text-slate-900 antialiased font-sans">
 
@@ -68,18 +78,10 @@ $isLoggedIn = is_logged_in();
             </span>
         </a>
         <div class="flex items-center gap-2">
-            <a href="#features"
-               class="hidden md:inline text-sm text-white/80 hover:text-white px-3 py-2">
-                Features
-            </a>
-            <a href="#how-it-works"
-               class="hidden md:inline text-sm text-white/80 hover:text-white px-3 py-2">
-                How it works
-            </a>
-            <a href="#roles"
-               class="hidden md:inline text-sm text-white/80 hover:text-white px-3 py-2">
-                Who it's for
-            </a>
+            <a href="#why"          class="hidden md:inline text-sm text-white/80 hover:text-white px-3 py-2">Why us</a>
+            <a href="#demo"         class="hidden md:inline text-sm text-white/80 hover:text-white px-3 py-2">See it</a>
+            <a href="#how-it-works" class="hidden md:inline text-sm text-white/80 hover:text-white px-3 py-2">How it works</a>
+            <a href="#faq"          class="hidden md:inline text-sm text-white/80 hover:text-white px-3 py-2">FAQ</a>
             <?php if ($isLoggedIn): ?>
                 <a href="/dashboard.php"
                    class="rounded bg-white text-brand-700 hover:bg-brand-50 text-sm font-semibold px-4 py-2 transition">
