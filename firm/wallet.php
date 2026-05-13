@@ -46,7 +46,7 @@ $byType->execute([':f' => $firmId]);
 $usage = $byType->fetchAll();
 
 $pageTitle = 'Credit Wallet';
-$currency = $w['currency'] ?? 'USD';
+$currency = $w['currency'] ?? 'MYR';
 require __DIR__ . '/../includes/header.php';
 ?>
 

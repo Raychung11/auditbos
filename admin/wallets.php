@@ -108,16 +108,16 @@ require __DIR__ . '/../includes/header.php';
                         </td>
                         <td><?= badge($r['subscription_status']) ?></td>
                         <td class="text-right tabular-nums <?= $low ? 'text-rose-700 font-medium' : '' ?>">
-                            <?= e(money((float) ($r['balance'] ?? 0), $r['currency'] ?? 'USD')) ?>
+                            <?= e(money((float) ($r['balance'] ?? 0), $r['currency'] ?? 'MYR')) ?>
                         </td>
                         <td class="text-right tabular-nums text-slate-600">
-                            <?= e(money((float) ($r['total_topped_up'] ?? 0), $r['currency'] ?? 'USD')) ?>
+                            <?= e(money((float) ($r['total_topped_up'] ?? 0), $r['currency'] ?? 'MYR')) ?>
                         </td>
                         <td class="text-right tabular-nums text-slate-600">
-                            <?= e(money((float) ($r['total_used'] ?? 0), $r['currency'] ?? 'USD')) ?>
+                            <?= e(money((float) ($r['total_used'] ?? 0), $r['currency'] ?? 'MYR')) ?>
                         </td>
                         <td class="text-right tabular-nums text-slate-600">
-                            <?= e(money((float) $r['used_30d'], $r['currency'] ?? 'USD')) ?>
+                            <?= e(money((float) $r['used_30d'], $r['currency'] ?? 'MYR')) ?>
                         </td>
                         <td class="text-right tabular-nums"><?= (int) $r['ai_calls_30d'] ?></td>
                         <td><?= badge($r['wallet_status'] ?? 'active') ?></td>

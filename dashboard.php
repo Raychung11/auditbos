@@ -52,8 +52,8 @@ if ($role === 'super_admin') {
         ['label' => 'Overdue Engagements',  'value' => $overdueEng,                    'href' => '#',                       'tone' => 'rose'],
         ['label' => 'Platform Users',       'value' => number_format($totalUsers),     'href' => '#',                       'tone' => 'brand'],
         ['label' => 'AI Calls (30d)',       'value' => number_format($aiCalls30d),     'href' => '/admin/activity.php',     'tone' => 'purple'],
-        ['label' => 'Topped Up (30d)',      'value' => money($creditsIn30d, 'USD'),    'href' => '/admin/transactions.php?direction=credit', 'tone' => 'emerald'],
-        ['label' => 'Credits Used (30d)',   'value' => money($creditsOut30d, 'USD'),   'href' => '/admin/transactions.php?direction=debit',  'tone' => 'amber'],
+        ['label' => 'Topped Up (30d)',      'value' => money($creditsIn30d),           'href' => '/admin/transactions.php?direction=credit', 'tone' => 'emerald'],
+        ['label' => 'Credits Used (30d)',   'value' => money($creditsOut30d),          'href' => '/admin/transactions.php?direction=debit',  'tone' => 'amber'],
     ];
 
     // Recent platform activity (last 15)
@@ -67,7 +67,7 @@ if ($role === 'super_admin') {
           LIMIT 15'
     )->fetchAll();
 
-    // Low-balance firms (< 5.00 USD or whatever the wallet currency is)
+    // Low-balance firms (< MYR 25 — roughly ~$5 at the default FX rate)
     $lowBalance = $pdo->query(
         'SELECT f.id, f.name, cw.balance, cw.currency,
                 (SELECT COUNT(*) FROM ai_logs WHERE firm_id = f.id
@@ -75,7 +75,7 @@ if ($role === 'super_admin') {
            FROM firms f
            JOIN credit_wallet cw ON cw.firm_id = f.id
           WHERE f.status = "active"
-            AND cw.balance < 5.00
+            AND cw.balance < 25.00
           ORDER BY cw.balance ASC
           LIMIT 8'
     )->fetchAll();
@@ -296,7 +296,7 @@ require __DIR__ . '/includes/header.php';
                 <a href="/admin/wallets.php" class="text-xs text-brand-600 hover:underline">All wallets</a>
             </div>
             <?php if (empty($lowBalance)): ?>
-                <div class="p-6 text-center text-sm text-slate-500">All wallets above $5.</div>
+                <div class="p-6 text-center text-sm text-slate-500">All wallets above MYR 25.</div>
             <?php else: ?>
                 <ul class="divide-y divide-slate-200">
                     <?php foreach ($lowBalance as $lb): ?>
@@ -310,7 +310,7 @@ require __DIR__ . '/includes/header.php';
                                 </div>
                                 <div class="text-right shrink-0">
                                     <div class="text-sm font-semibold text-rose-700 tabular-nums">
-                                        <?= e(money((float) $lb['balance'], $lb['currency'] ?? 'USD')) ?>
+                                        <?= e(money((float) $lb['balance'], $lb['currency'] ?? 'MYR')) ?>
                                     </div>
                                     <a href="/admin/firms_topup.php?firm_id=<?= (int) $lb['id'] ?>"
                                        class="text-xs text-brand-600 hover:underline">Top up</a>
@@ -347,7 +347,7 @@ require __DIR__ . '/includes/header.php';
                                     <?php if ((int) $a['failed'] > 0): ?>
                                         · <span class="text-rose-700"><?= (int) $a['failed'] ?> failed</span>
                                     <?php endif; ?>
-                                    · $<?= number_format((float) $a['cost'], 4) ?>
+                                    · MYR <?= number_format((float) $a['cost'], 4) ?>
                                 </span>
                             </div>
                             <div class="w-full bg-slate-100 rounded h-2 mt-1">

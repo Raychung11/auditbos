@@ -111,7 +111,7 @@ require __DIR__ . '/../includes/header.php';
                         <td class="text-xs tabular-nums"><?= $tokens > 0 ? number_format($tokens) : '—' ?></td>
                         <td class="text-xs tabular-nums">
                             <?= $o['credits_used'] !== null && (float)$o['credits_used'] > 0
-                                ? '$' . number_format((float) $o['credits_used'], 4)
+                                ? 'MYR ' . number_format((float) $o['credits_used'], 4)
                                 : '—' ?>
                         </td>
                         <td><?= badge($o['status']) ?></td>

@@ -29,16 +29,19 @@ require_once __DIR__ . '/../config/db_config.php';
 require_once __DIR__ . '/prompts.php';
 
 // ---------------------------------------------------------------------
-// Pricing (USD per 1M tokens) — keep in sync with Anthropic.
-// Used only to compute the USD cost shown on ai_logs.credits_used and
-// debited from credit_wallet. Override per firm later if needed.
+// Pricing. Anthropic publishes prices in USD per 1M tokens; firm wallets
+// are denominated in MYR (per credit_wallet.currency default). We
+// compute the raw USD cost from token usage, convert to MYR, then apply
+// AI_CREDIT_MARKUP. Override the FX rate per environment via
+// db_config.local.php to track the actual rate the firm pays.
 // ---------------------------------------------------------------------
-if (!defined('AI_PRICE_INPUT_PER_1M'))  define('AI_PRICE_INPUT_PER_1M',   5.00);
-if (!defined('AI_PRICE_OUTPUT_PER_1M')) define('AI_PRICE_OUTPUT_PER_1M', 25.00);
-if (!defined('AI_CREDIT_MARKUP'))       define('AI_CREDIT_MARKUP',       1.00); // billable = cost × markup
-if (!defined('AI_MAX_TOKENS'))          define('AI_MAX_TOKENS',          8192);
-if (!defined('AI_HTTP_TIMEOUT'))        define('AI_HTTP_TIMEOUT',        180);
-if (!defined('AI_EFFORT'))              define('AI_EFFORT',              'high');
+if (!defined('AI_PRICE_INPUT_PER_1M'))  define('AI_PRICE_INPUT_PER_1M',   5.00);   // USD
+if (!defined('AI_PRICE_OUTPUT_PER_1M')) define('AI_PRICE_OUTPUT_PER_1M', 25.00);   // USD
+if (!defined('AI_USD_TO_MYR'))          define('AI_USD_TO_MYR',           4.70);   // FX rate
+if (!defined('AI_CREDIT_MARKUP'))       define('AI_CREDIT_MARKUP',        1.00);   // billable = MYR cost × markup
+if (!defined('AI_MAX_TOKENS'))          define('AI_MAX_TOKENS',           8192);
+if (!defined('AI_HTTP_TIMEOUT'))        define('AI_HTTP_TIMEOUT',         180);
+if (!defined('AI_EFFORT'))              define('AI_EFFORT',               'high');
 
 // ---------------------------------------------------------------------
 // Public entrypoint used by callers.
@@ -299,7 +302,7 @@ function ai_call_provider(string $functionName, array $config, string $userMessa
 
     $costUsd = ($inputTokens  * AI_PRICE_INPUT_PER_1M  / 1_000_000)
              + ($outputTokens * AI_PRICE_OUTPUT_PER_1M / 1_000_000);
-    $credits = round($costUsd * AI_CREDIT_MARKUP, 4);
+    $credits = round($costUsd * AI_USD_TO_MYR * AI_CREDIT_MARKUP, 4);   // MYR
 
     return [
         'output'        => $outputText,

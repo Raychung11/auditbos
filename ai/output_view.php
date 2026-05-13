@@ -89,7 +89,7 @@ require __DIR__ . '/../includes/header.php';
                     <?= number_format((int) $out['input_tokens']) ?> in
                     / <?= number_format((int) $out['output_tokens']) ?> out
                     <?php if ($out['credits_used']): ?>
-                        · $<?= number_format((float) $out['credits_used'], 4) ?>
+                        · MYR <?= number_format((float) $out['credits_used'], 4) ?>
                     <?php endif; ?>
                     <?php if ($out['latency_ms']): ?>
                         · <?= number_format((int) $out['latency_ms']) ?>ms

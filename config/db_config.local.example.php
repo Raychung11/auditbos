@@ -20,7 +20,11 @@ define('DB_PASS', 'replace-me');
 define('AI_PROVIDER', 'anthropic');
 define('AI_MODEL',    'claude-opus-4-7');
 define('AI_API_KEY',  '');       // set to enable real AI calls
-define('AI_CREDITS_PER_CALL', 1.00);
+
+// Anthropic publishes prices in USD; firm wallets are MYR. Override
+// the FX rate per environment to track what your firm actually pays.
+define('AI_USD_TO_MYR', 4.70);
+define('AI_CREDIT_MARKUP', 1.00); // billable = MYR cost × markup
 
 // ---------------------------------------------------------------------
 // Optional overrides

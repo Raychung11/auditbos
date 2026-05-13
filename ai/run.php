@@ -128,7 +128,7 @@ require __DIR__ . '/../includes/header.php';
                 </span>
             <?php endif; ?>
             <?php if (($result['credits'] ?? 0) > 0): ?>
-                <span>$<?= number_format((float) $result['credits'], 4) ?></span>
+                <span>MYR <?= number_format((float) $result['credits'], 4) ?></span>
             <?php endif; ?>
             <?php if (!empty($result['latency_ms'])): ?>
                 <span><?= number_format((int) $result['latency_ms']) ?>ms</span>

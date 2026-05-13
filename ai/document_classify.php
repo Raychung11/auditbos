@@ -205,7 +205,7 @@ function ai_classify_document(int $documentId): array
 
     $costUsd = (($usage['input_tokens'] ?? 0)  * AI_PRICE_INPUT_PER_1M  / 1_000_000)
              + (($usage['output_tokens'] ?? 0) * AI_PRICE_OUTPUT_PER_1M / 1_000_000);
-    $credits = round($costUsd * AI_CREDIT_MARKUP, 4);
+    $credits = round($costUsd * AI_USD_TO_MYR * AI_CREDIT_MARKUP, 4);   // MYR
 
     $pdo->prepare(
         'UPDATE ai_logs SET output = :o, input_tokens = :it, output_tokens = :ot,
