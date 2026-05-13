@@ -232,16 +232,10 @@ function run_seed(PDO $pdo, int $firmId, ?int $userId): array
         ':an'=>'Lessor is a related party — RPT disclosure needed.',
     ]);
 
-    // 5. Audit sections — use the system defaults; pick a handful for WPs
-    $secs = $pdo->query(
-        'SELECT id, code, name FROM audit_sections
-          WHERE (firm_id IS NULL OR firm_id IS NOT NULL) AND status = "active"
-          ORDER BY sort_order'
-    )->fetchAll(PDO::FETCH_KEY_PAIR | PDO::FETCH_ASSOC);
-    // The above returns code => id mapping using KEY_PAIR — re-query simpler:
+    // 5. Audit sections — build a code => id map for the WP inserts below.
     $secs = [];
-    foreach (db()->query(
-        'SELECT id, code, name FROM audit_sections WHERE status = "active" ORDER BY sort_order'
+    foreach ($pdo->query(
+        'SELECT id, code FROM audit_sections WHERE status = "active" ORDER BY sort_order'
     ) as $row) {
         $secs[$row['code']] = (int) $row['id'];
     }
