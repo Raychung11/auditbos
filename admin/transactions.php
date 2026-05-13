@@ -51,7 +51,7 @@ $agg = $pdo->prepare(
     'SELECT
        COALESCE(SUM(CASE WHEN direction = "credit" THEN amount ELSE 0 END), 0) AS credits,
        COALESCE(SUM(CASE WHEN direction = "debit"  THEN amount ELSE 0 END), 0) AS debits,
-       COUNT(*) AS rows'
+       COUNT(*) AS row_count'
     . ' FROM credit_transactions WHERE 1=1'
     . ($firmId > 0 ? ' AND firm_id = :fid' : '')
     . (in_array($direction, ['credit','debit'], true) ? ' AND direction = :dir' : '')
@@ -60,7 +60,7 @@ $agg = $pdo->prepare(
     . ($to   ? ' AND created_at <= :to'   : '')
 );
 $agg->execute($params);
-$totals = $agg->fetch() ?: ['credits'=>0, 'debits'=>0, 'rows'=>0];
+$totals = $agg->fetch() ?: ['credits'=>0, 'debits'=>0, 'row_count'=>0];
 
 $pageTitle = 'Credit Transactions';
 require __DIR__ . '/../includes/header.php';
@@ -68,7 +68,7 @@ require __DIR__ . '/../includes/header.php';
 
 <div class="flex items-end justify-between gap-3 mb-4">
     <p class="text-sm text-slate-600">
-        Cross-firm credit ledger. <?= (int) $totals['rows'] ?> rows in filter ·
+        Cross-firm credit ledger. <?= (int) $totals['row_count'] ?> rows in filter ·
         topped <?= e(money((float) $totals['credits'])) ?> ·
         used <?= e(money((float) $totals['debits'])) ?>
     </p>
