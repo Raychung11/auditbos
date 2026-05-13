@@ -165,6 +165,10 @@ $dataStmt = $pdo->prepare(
 $dataStmt->execute([':e'=>$id, ':e2'=>$id, ':e3'=>$id]);
 $dataSummary = $dataStmt->fetch() ?: ['tb_current'=>0, 'tb_prior'=>0, 'gl_rows'=>0];
 
+// Engagement-scoped activity timeline (last 60 events).
+require_once __DIR__ . '/../includes/timeline.php';
+$timeline = engagement_timeline($id, 60);
+
 $pageTitle = $eng['company_name'] . ' · ' . $eng['financial_year'];
 require __DIR__ . '/../includes/header.php';
 ?>
@@ -434,6 +438,52 @@ require __DIR__ . '/../includes/header.php';
             <?php endif; ?>
         </div>
     </div>
+</div>
+
+<!-- Activity timeline -->
+<div class="mt-8 bg-white rounded-lg border border-slate-200">
+    <div class="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
+        <h3 class="font-semibold text-slate-900">Activity timeline</h3>
+        <span class="text-xs text-slate-500">Latest <?= count($timeline) ?> events</span>
+    </div>
+    <?php if (empty($timeline)): ?>
+        <div class="p-8 text-center text-sm text-slate-500">
+            No recorded activity yet.
+        </div>
+    <?php else: ?>
+        <ol class="relative px-5 py-4">
+            <span class="absolute left-7 top-4 bottom-4 w-px bg-slate-200" aria-hidden="true"></span>
+            <?php foreach ($timeline as $t):
+                $meta = timeline_action_meta($t['action']);
+                $dot  = timeline_dot_classes($meta['tone']);
+            ?>
+                <li class="relative pl-8 py-2">
+                    <span class="absolute left-1.5 top-3 w-3 h-3 rounded-full <?= $dot ?> ring-4 ring-white"></span>
+                    <div class="flex items-baseline justify-between gap-3">
+                        <div class="min-w-0">
+                            <div class="text-sm text-slate-800">
+                                <span class="font-medium"><?= e($meta['label']) ?></span>
+                                <?php if (!empty($t['description'])): ?>
+                                    <span class="text-slate-500">·</span>
+                                    <span class="text-slate-600"><?= e($t['description']) ?></span>
+                                <?php endif; ?>
+                            </div>
+                            <div class="text-xs text-slate-500 mt-0.5">
+                                <?= e($t['user_name'] ?? 'System') ?>
+                                <?php if ($t['user_role']): ?>
+                                    · <?= e(ucwords(str_replace('_',' ',$t['user_role']))) ?>
+                                <?php endif; ?>
+                                · <code class="text-[10px] font-mono text-slate-400"><?= e($t['action']) ?></code>
+                            </div>
+                        </div>
+                        <time class="text-xs text-slate-500 whitespace-nowrap" datetime="<?= e($t['created_at']) ?>">
+                            <?= e(datefmt($t['created_at'], 'd M Y H:i')) ?>
+                        </time>
+                    </div>
+                </li>
+            <?php endforeach; ?>
+        </ol>
+    <?php endif; ?>
 </div>
 
 <?php require __DIR__ . '/../includes/footer.php'; ?>
