@@ -44,6 +44,28 @@ $summary = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
+    $action = $_POST['_action'] ?? 'seed';
+
+    if ($action === 'reset_demo_passwords') {
+        // Recovery action: reset every demo user attached to this firm so
+        // the documented password works again — clears lockouts too.
+        $pwHash = password_hash('DemoPass!2026', PASSWORD_DEFAULT);
+        $pdo->prepare(
+            'UPDATE users
+                SET password_hash = :h,
+                    status = "active",
+                    failed_login_count = 0,
+                    locked_until = NULL,
+                    password_reset_token = NULL,
+                    password_reset_expires_at = NULL
+              WHERE firm_id = :f
+                AND email LIKE "demo.%@example.com"'
+        )->execute([':h' => $pwHash, ':f' => $firmId]);
+        log_activity('demo.reset_passwords', 'firm', $firmId);
+        flash('success', 'Demo passwords reset to DemoPass!2026 and lockouts cleared.');
+        redirect('/admin/seed_demo.php?firm_id=' . $firmId);
+    }
+
     if ($c['clients'] > 0 && empty($_POST['force'])) {
         flash('error', 'This firm already has clients. Tick "force" to seed anyway.');
         redirect('/admin/seed_demo.php?firm_id=' . $firmId);
@@ -79,10 +101,23 @@ function run_seed(PDO $pdo, int $firmId, ?int $userId): array
         ['reviewer',       'Demo Reviewer',       'demo.reviewer@example.com'],
     ];
     $staffIds = [];
+    // Refresh password / status / firm_id on every seed so the documented
+    // demo password always works, even after lockouts or previous tenant runs.
     $ins = $pdo->prepare(
-        'INSERT INTO users (firm_id, role, name, email, password_hash, status, created_by)
-         VALUES (:f, :r, :n, :e, :h, "active", :cb)
-         ON DUPLICATE KEY UPDATE email = email'
+        'INSERT INTO users (firm_id, role, name, email, password_hash, status, created_by,
+                            failed_login_count, locked_until,
+                            password_reset_token, password_reset_expires_at)
+         VALUES (:f, :r, :n, :e, :h, "active", :cb, 0, NULL, NULL, NULL)
+         ON DUPLICATE KEY UPDATE
+            firm_id              = VALUES(firm_id),
+            role                 = VALUES(role),
+            name                 = VALUES(name),
+            password_hash        = VALUES(password_hash),
+            status               = "active",
+            failed_login_count   = 0,
+            locked_until         = NULL,
+            password_reset_token = NULL,
+            password_reset_expires_at = NULL'
     );
     foreach ($staff as [$role, $name, $email]) {
         $ins->execute([':f'=>$firmId, ':r'=>$role, ':n'=>$name, ':e'=>$email,
@@ -525,6 +560,24 @@ require __DIR__ . '/../includes/header.php';
             Seed demo data
         </button>
     </form>
+
+    <?php if ($c['staff'] > 0): ?>
+        <div class="mt-5 pt-4 border-t border-slate-200">
+            <h4 class="font-medium text-slate-900 text-sm mb-1">Can't sign in as a demo user?</h4>
+            <p class="text-xs text-slate-500 mb-2">
+                Resets every <code>demo.*@example.com</code> account for this firm back to
+                password <code>DemoPass!2026</code> and clears any lockouts.
+            </p>
+            <form method="post">
+                <?= csrf_field() ?>
+                <input type="hidden" name="firm_id" value="<?= (int) $firmId ?>">
+                <input type="hidden" name="_action" value="reset_demo_passwords">
+                <button class="rounded border border-amber-400 text-amber-800 bg-amber-50 hover:bg-amber-100 px-3 py-1.5 text-xs font-medium">
+                    Reset demo passwords
+                </button>
+            </form>
+        </div>
+    <?php endif; ?>
 
     <div class="mt-4 text-xs text-slate-500">
         Demo staff passwords: <code>DemoPass!2026</code> — rotate via
