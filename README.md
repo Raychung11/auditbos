@@ -550,6 +550,7 @@ document root at the project root.
 |---|---|
 | `sql/001_initial_schema.sql` | 21 core tables + seed default document categories + audit sections |
 | `sql/002_import_module.sql` | `import_batches` + `import_mappings` + adds `import_batch_id` to `trial_balances` and `general_ledgers` |
+| `sql/003_lead_schedules.sql` | `lead_schedule_overrides` + adds `lead_area` to `audit_working_papers` |
 
 Run them in order. They're idempotent on `CREATE TABLE IF NOT EXISTS` for the new tables
 but the `ALTER TABLE` statements in `002` will fail if run twice — wrap in your own
@@ -621,6 +622,7 @@ find . -name "*.php" -not -path "./.git/*" -print0 | xargs -0 -n1 php -l | grep 
 - ✅ Working papers + review notes thread
 - ✅ Accounting data import (CSV + native XLSX)
 - ✅ Trial balance variance view
+- ✅ Lead schedules (TB grouped into audit areas, reclassify, tie to working paper)
 - ✅ Financial statement export (SOFP + SOCI)
 - ✅ AI assistant (8 functions + document classifier)
 - ✅ Staff KPI module + partner dashboard

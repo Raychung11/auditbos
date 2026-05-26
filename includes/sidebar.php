@@ -88,6 +88,12 @@ $nav = [
         'icon'  => 'M12 4v16m8-8H4',
     ],
     [
+        'label' => 'Lead Schedules',
+        'href'  => '/audit/lead_schedules.php',
+        'roles' => ['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer'],
+        'icon'  => 'M3 10h18M3 14h18m-9-8v12M4 4h16a1 1 0 011 1v14a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z',
+    ],
+    [
         'label' => 'Import Data',
         'href'  => '/import/index.php',
         'roles' => ['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer'],
