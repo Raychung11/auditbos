@@ -82,6 +82,12 @@ $nav = [
         'icon'  => 'M9 17v-6a2 2 0 012-2h2a2 2 0 012 2v6M5 21h14a2 2 0 002-2V7l-5-5H7a2 2 0 00-2 2v17z',
     ],
     [
+        'label' => 'Reminders',
+        'href'  => '/firm/reminders.php',
+        'roles' => ['firm_admin','audit_manager','senior_auditor'],
+        'icon'  => 'M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 00-4-5.7V5a2 2 0 10-4 0v.3A6 6 0 006 11v3.2a2 2 0 01-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9',
+    ],
+    [
         'label' => 'Working Papers',
         'href'  => '/audit/working_papers.php',
         'roles' => ['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer'],

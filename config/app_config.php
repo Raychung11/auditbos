@@ -78,6 +78,14 @@ if (!defined('MAIL_ENABLED'))   define('MAIL_ENABLED',   (bool) MAIL_FROM);
 if (!defined('TOKEN_TTL_SECONDS')) define('TOKEN_TTL_SECONDS', 60 * 60 * 24); // 24h for reset / invite tokens
 
 // ---------------------------------------------------------------------
+// Reminders. CRON_TOKEN guards /cron/reminders.php so only your
+// scheduler can trigger automated sends. REMINDER_COOLDOWN_DAYS stops
+// the same client being nudged more often than this.
+// ---------------------------------------------------------------------
+if (!defined('CRON_TOKEN'))             define('CRON_TOKEN',             getenv('CRON_TOKEN') ?: '');
+if (!defined('REMINDER_COOLDOWN_DAYS')) define('REMINDER_COOLDOWN_DAYS', 3);
+
+// ---------------------------------------------------------------------
 // PHP hardening (no display_errors in prod)
 // ---------------------------------------------------------------------
 ini_set('display_errors', '0');

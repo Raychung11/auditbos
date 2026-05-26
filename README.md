@@ -552,6 +552,7 @@ document root at the project root.
 | `sql/002_import_module.sql` | `import_batches` + `import_mappings` + adds `import_batch_id` to `trial_balances` and `general_ledgers` |
 | `sql/003_lead_schedules.sql` | `lead_schedule_overrides` + adds `lead_area` to `audit_working_papers` |
 | `sql/004_approval_workflow.sql` | `engagement_signoffs` + adds `review_stage` / `locked_at` / `locked_by` to `engagements` |
+| `sql/005_reminders.sql` | `reminders` log table |
 
 Run them in order. They're idempotent on `CREATE TABLE IF NOT EXISTS` for the new tables
 but the `ALTER TABLE` statements in `002` will fail if run twice — wrap in your own
@@ -620,6 +621,7 @@ find . -name "*.php" -not -path "./.git/*" -print0 | xargs -0 -n1 php -l | grep 
 - ✅ Multi-tenant schema, auth, role-based access
 - ✅ Firm / staff / client / engagement management
 - ✅ Document portal with secure upload + download
+- ✅ Automated reminders (client document chasing + staff nudges, email + WhatsApp deep-link, cron endpoint)
 - ✅ Working papers + review notes thread
 - ✅ Multi-level approval chain + archive locking (Preparation → Senior → Manager → Partner → Signed off → Locked)
 - ✅ Accounting data import (CSV + native XLSX)
@@ -644,8 +646,7 @@ find . -name "*.php" -not -path "./.git/*" -print0 | xargs -0 -n1 php -l | grep 
 - 🚫 MFRS-compliant notes / disclosures
 - 🚫 Per-account FS mapping UI (heuristic classifier covers ~95% of standard CoAs)
 - 🚫 Live accounting-API integrations (CSV/XLSX export already covers SQL Account, AutoCount, UBS, Bukku, Million, Financio)
-- 🚫 WhatsApp send-out (AI drafts the message; you copy-paste for now)
-- 🚫 Email send-out wiring beyond PHP `mail()` (no SMTP / SendGrid integration yet)
+- 🚫 SMTP / SendGrid integration (reminders use PHP `mail()`; WhatsApp is a deep-link, not an API send)
 - 🚫 Engagement deadline calendar / Gantt view
 - 🚫 Bulk doc-request templates per firm
 
