@@ -627,6 +627,7 @@ find . -name "*.php" -not -path "./.git/*" -print0 | xargs -0 -n1 php -l | grep 
 - ✅ Accounting data import (CSV + native XLSX)
 - ✅ Trial balance variance view
 - ✅ Lead schedules (TB grouped into audit areas, reclassify, tie to working paper)
+- ✅ GL analytics (duplicate payments, round numbers, weekend postings, outliers, Benford, concentration)
 - ✅ Financial statement export (SOFP + SOCI)
 - ✅ AI assistant (8 functions + document classifier)
 - ✅ Staff KPI module + partner dashboard

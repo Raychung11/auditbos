@@ -43,6 +43,8 @@ function ai_build_user_message(string $functionName, ?int $engagementId, array $
             return ai_payload_client_reminder($engagementId);
         case 'ai_review_working_paper':
             return ai_payload_review_wp((int)($payload['working_paper_id'] ?? 0));
+        case 'ai_analyze_gl_exceptions':
+            return ai_payload_gl_exceptions($engagementId);
         default:
             return "(No structured data available — function: {$functionName})";
     }
@@ -428,6 +430,76 @@ function ai_payload_client_reminder(?int $engagementId): string
          . "  1. EMAIL version (formal but warm, ~150 words; full salutation + signature placeholder)\n"
          . "  2. WHATSAPP version (3–5 short lines, friendly, no formal salutation; use line breaks for readability)\n\n"
          . "Both should list the outstanding items clearly and propose a deadline (suggest one week unless an earlier due date is shown).";
+    return $out;
+}
+
+// ---------------------------------------------------------------------
+// GL exception analysis — feeds the automated analytics into Claude.
+// ---------------------------------------------------------------------
+function ai_payload_gl_exceptions(?int $engagementId): string
+{
+    if (!$engagementId) return "No engagement context provided.";
+    require_once __DIR__ . '/../includes/gl_analytics.php';
+    $header = ai_engagement_header($engagementId);
+    $a = gl_run_all($engagementId);
+    $s = $a['summary'];
+
+    if ($s['rows'] === 0) {
+        return $header . "\n\nNo general ledger has been imported for this engagement.";
+    }
+
+    $out = $header . "\n\nGENERAL LEDGER SUMMARY:\n"
+        . "  Transactions: {$s['rows']} · Accounts: {$s['accounts']}\n"
+        . "  Total debits: " . number_format($s['total_debit'], 2)
+        . " · Total credits: " . number_format($s['total_credit'], 2) . "\n"
+        . "  Period: " . ($s['date_min'] ?? '?') . " to " . ($s['date_max'] ?? '?') . "\n";
+
+    $out .= "\nPOTENTIAL DUPLICATE PAYMENTS (same account+amount+date, posted >1x): "
+        . count($a['duplicates']) . "\n";
+    foreach (array_slice($a['duplicates'], 0, 15) as $d) {
+        $out .= "  - {$d['transaction_date']} {$d['account_code']} {$d['account_name']} "
+            . "x {$d['occurrences']} @ " . number_format((float) $d['debit'], 2)
+            . " (refs: {$d['refs']})\n";
+    }
+
+    $out .= "\nROUND-NUMBER POSTINGS (multiples of 1,000): " . count($a['round']) . "\n";
+    foreach (array_slice($a['round'], 0, 12) as $r) {
+        $out .= "  - {$r['transaction_date']} {$r['account_code']} "
+            . number_format((float) $r['amount'], 2)
+            . ($r['reference_no'] ? " ref {$r['reference_no']}" : '') . "\n";
+    }
+
+    $out .= "\nWEEKEND POSTINGS: " . count($a['weekend']) . "\n";
+    foreach (array_slice($a['weekend'], 0, 12) as $w) {
+        $out .= "  - {$w['transaction_date']} ({$w['day_name']}) {$w['account_code']} "
+            . "Dr " . number_format((float) $w['debit'], 2)
+            . " Cr " . number_format((float) $w['credit'], 2) . "\n";
+    }
+
+    $out .= "\nLARGEST TRANSACTIONS:\n";
+    foreach (array_slice($a['outliers'], 0, 10) as $o) {
+        $out .= "  - {$o['transaction_date']} {$o['account_code']} {$o['account_name']} "
+            . number_format((float) $o['amount'], 2) . "\n";
+    }
+
+    $out .= "\nACCOUNT CONCENTRATION (top by value):\n";
+    foreach (array_slice($a['top'], 0, 10) as $t) {
+        $out .= "  - {$t['account_code']} {$t['account_name']}: "
+            . "{$t['txns']} txns, total " . number_format((float) $t['total_value'], 2) . "\n";
+    }
+
+    $b = $a['benford'];
+    $out .= "\nBENFORD FIRST-DIGIT ANALYSIS (sample {$b['sample']}, max deviation "
+        . number_format($b['max_deviation'], 1) . "%):\n";
+    foreach ($b['rows'] as $row) {
+        $out .= "  digit {$row['digit']}: observed " . number_format($row['observed_pct'], 1)
+            . "% vs expected " . number_format($row['expected_pct'], 1)
+            . "% (" . ($row['deviation'] >= 0 ? '+' : '') . number_format($row['deviation'], 1) . "%)\n";
+    }
+
+    $out .= "\nReview these exceptions. Tell the team which to investigate first and why, "
+        . "the specific follow-up procedure for each material item, and whether any pattern "
+        . "suggests error or fraud. Be proportionate. Group findings High / Medium / Low.";
     return $out;
 }
 

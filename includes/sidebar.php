@@ -100,6 +100,12 @@ $nav = [
         'icon'  => 'M3 10h18M3 14h18m-9-8v12M4 4h16a1 1 0 011 1v14a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z',
     ],
     [
+        'label' => 'GL Analytics',
+        'href'  => '/audit/gl_analytics.php',
+        'roles' => ['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer'],
+        'icon'  => 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',
+    ],
+    [
         'label' => 'Import Data',
         'href'  => '/import/index.php',
         'roles' => ['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer'],

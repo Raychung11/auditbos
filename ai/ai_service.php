@@ -213,6 +213,12 @@ function ai_registry(): array
             'entity_type' => 'engagement',
             'title'       => 'Partner review pack',
         ],
+        'ai_analyze_gl_exceptions' => [
+            'prompt'      => 'You are a forensic-minded audit senior reviewing general-ledger analytics. You receive the output of automated exception tests (potential duplicate payments, round-number postings, weekend postings, largest transactions, account concentration, and a Benford first-digit analysis). Identify which exceptions warrant investigation and why, propose specific follow-up procedures, and call out any patterns that could indicate error or fraud. Be proportionate — do not cry wolf on immaterial items. Output a short memo grouped by risk level (High / Medium / Low).',
+            'output_type' => 'gl_exceptions',
+            'entity_type' => 'engagement',
+            'title'       => 'GL exception analysis',
+        ],
     ];
 }
 
