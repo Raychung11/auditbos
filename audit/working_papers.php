@@ -9,6 +9,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/../includes/auth_guard.php';
 require_role(['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer']);
+require_once __DIR__ . '/../includes/workflow.php';
 
 $pdo    = db();
 $firmId = current_firm_id();
@@ -42,6 +43,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $check->execute([':id'=>$engId, ':fid'=>$firmId]);
     if (!$check->fetch()) {
         flash('error', 'Invalid engagement.');
+    } elseif (engagement_locked($engId)) {
+        flash('error', 'This engagement is locked. Unlock it to edit working papers.');
+        redirect('/firm/engagement_view.php?id=' . $engId);
     } elseif ($title === '' || !in_array($status, $statuses, true)) {
         flash('error', 'Title and a valid status are required.');
     } else {

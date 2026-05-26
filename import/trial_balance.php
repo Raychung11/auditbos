@@ -19,6 +19,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../includes/auth_guard.php';
 require_role(['firm_admin','audit_manager','senior_auditor']);
 require_once __DIR__ . '/../includes/import_helpers.php';
+require_once __DIR__ . '/../includes/workflow.php';
 
 $pdo    = db();
 $firmId = current_firm_id();
@@ -79,6 +80,7 @@ if ($step === '1' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         flash('error', 'Invalid period.'); redirect('/import/index.php');
     }
     $eng = load_engagement($pdo, $engId, $firmId);
+    assert_engagement_open($engId);
 
     try {
         $stash = stash_import_upload($_FILES['file'] ?? [], $firmId);
@@ -115,6 +117,7 @@ if ($step === '1' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 if ($step === '3' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
     $batch = load_batch($pdo, (int) $_POST['batch'], $firmId);
+    assert_engagement_open((int) $batch['engagement_id']);
     if ($batch['status'] !== 'pending') {
         flash('error', 'Batch already processed.');
         redirect('/import/index.php?engagement_id=' . $batch['engagement_id']);

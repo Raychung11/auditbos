@@ -10,6 +10,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/../includes/auth_guard.php';
 require_role(['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer']);
+require_once __DIR__ . '/../includes/workflow.php';
 
 $pdo    = db();
 $firmId = current_firm_id();
@@ -29,6 +30,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$canEdit) { http_response_code(403); exit('Forbidden'); }
 
     $editId    = (int)($_POST['id'] ?? 0);
+    if ($editId > 0) {
+        assert_engagement_open($editId);
+    }
     $clientId  = (int)($_POST['client_id'] ?? 0);
     $engCode   = trim((string)($_POST['engagement_code'] ?? '')) ?: null;
     $fy        = trim((string)($_POST['financial_year'] ?? ''));

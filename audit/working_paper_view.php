@@ -10,6 +10,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/../includes/auth_guard.php';
 require_role(['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer']);
+require_once __DIR__ . '/../includes/workflow.php';
 
 $pdo    = db();
 $firmId = current_firm_id();
@@ -24,6 +25,18 @@ $canReview = role_allows(['firm_admin','audit_manager','senior_auditor','reviewe
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
     $action = $_POST['_action'] ?? '';
+
+    // Block all mutations when the parent engagement is locked.
+    $engLookup = $pdo->prepare(
+        'SELECT e.id FROM audit_working_papers wp
+           JOIN engagements e ON e.id = wp.engagement_id
+          WHERE wp.id = :id AND e.firm_id = :fid'
+    );
+    $engLookup->execute([':id'=>$id, ':fid'=>$firmId]);
+    $engForLock = (int) ($engLookup->fetchColumn() ?: 0);
+    if ($engForLock > 0) {
+        assert_engagement_open($engForLock);
+    }
 
     if ($action === 'raise_note' && $canReview) {
         $note = trim((string)($_POST['note'] ?? ''));

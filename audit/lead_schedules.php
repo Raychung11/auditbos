@@ -12,6 +12,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../includes/auth_guard.php';
 require_role(['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer']);
 require_once __DIR__ . '/../includes/lead_schedules.php';
+require_once __DIR__ . '/../includes/workflow.php';
 
 $pdo    = db();
 $firmId = current_firm_id();
@@ -91,6 +92,7 @@ if (!$engagement) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
     if (!$canEdit) { http_response_code(403); exit('Forbidden'); }
+    assert_engagement_open($engagementId);
     $action = $_POST['_action'] ?? '';
     $areas  = lead_areas();
 

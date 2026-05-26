@@ -11,6 +11,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/../includes/auth_guard.php';
 require_role(['firm_admin','audit_manager','senior_auditor']);
+require_once __DIR__ . '/../includes/workflow.php';
 
 $pdo    = db();
 $firmId = current_firm_id();
@@ -44,6 +45,7 @@ $allowedStatuses = ['pending','received','rejected','needs_clarification','waive
 // ---------------------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
+    assert_engagement_open($engagementId);
     $action = $_POST['_action'] ?? 'save';
 
     if ($action === 'delete') {

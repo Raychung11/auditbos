@@ -12,6 +12,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/../includes/auth_guard.php';
 require_role(['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer']);
+require_once __DIR__ . '/../includes/workflow.php';
 
 $pdo    = db();
 $firmId = current_firm_id();
@@ -47,6 +48,79 @@ $canEdit = role_allows(['firm_admin','audit_manager','senior_auditor']);
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
     $action = $_POST['_action'] ?? '';
+
+    // --- Approval workflow transitions ---------------------------------
+    if (in_array($action, ['wf_submit','wf_approve','wf_return','wf_lock','wf_unlock'], true)) {
+        $cur = $pdo->prepare('SELECT review_stage, status, locked_at FROM engagements WHERE id = :id AND firm_id = :fid');
+        $cur->execute([':id'=>$id, ':fid'=>$firmId]);
+        $engRow = $cur->fetch();
+        if (!$engRow) { flash('error','Engagement not found.'); redirect('/firm/engagements.php'); }
+        $stage  = $engRow['review_stage'];
+        $locked = $engRow['locked_at'] !== null;
+        $role   = current_role();
+        $notes  = trim((string)($_POST['notes'] ?? '')) ?: null;
+
+        if ($action === 'wf_submit' || $action === 'wf_approve') {
+            if ($locked) {
+                flash('error', 'Engagement is locked. Unlock first.');
+            } elseif (!in_array($role, workflow_approvers($stage), true)) {
+                flash('error', 'Your role cannot advance the file from "' . workflow_stages()[$stage]['label'] . '".');
+            } else {
+                $next = workflow_next_stage($stage);
+                if ($next) {
+                    $newStatus = $next === 'signed_off' ? 'completed' : 'under_review';
+                    $pdo->prepare('UPDATE engagements SET review_stage = :rs, status = :st WHERE id = :id')
+                        ->execute([':rs'=>$next, ':st'=>$newStatus, ':id'=>$id]);
+                    workflow_log($id, $action === 'wf_submit' ? 'submit' : ($next === 'signed_off' ? 'sign_off' : 'approve'),
+                        $stage, $next, $notes);
+                    flash('success', $next === 'signed_off'
+                        ? 'Partner sign-off recorded. You can now lock the file.'
+                        : 'Moved to ' . workflow_stages()[$next]['label'] . '.');
+                }
+            }
+        } elseif ($action === 'wf_return') {
+            if ($locked) {
+                flash('error', 'Engagement is locked. Unlock first.');
+            } elseif ($stage === 'preparation') {
+                flash('error', 'Already in preparation.');
+            } elseif (!in_array($role, workflow_approvers($stage), true)) {
+                flash('error', 'Your role cannot return this file.');
+            } else {
+                $pdo->prepare('UPDATE engagements SET review_stage = "preparation", status = "in_progress" WHERE id = :id')
+                    ->execute([':id'=>$id]);
+                workflow_log($id, 'return', $stage, 'preparation', $notes);
+                flash('success', 'Returned to preparation' . ($notes ? ' with notes.' : '.'));
+            }
+        } elseif ($action === 'wf_lock') {
+            if ($role !== 'firm_admin') {
+                flash('error', 'Only a firm admin (partner) can lock the file.');
+            } elseif ($stage !== 'signed_off') {
+                flash('error', 'The file must be partner-signed-off before locking.');
+            } elseif ($locked) {
+                flash('error', 'Already locked.');
+            } else {
+                $pdo->prepare('UPDATE engagements SET locked_at = NOW(), locked_by = :u, status = "archived" WHERE id = :id')
+                    ->execute([':u'=>current_user_id(), ':id'=>$id]);
+                workflow_log($id, 'lock', $stage, $stage, $notes);
+                flash('success', 'Engagement locked and archived. It is now read-only.');
+            }
+        } elseif ($action === 'wf_unlock') {
+            if ($role !== 'firm_admin') {
+                flash('error', 'Only a firm admin (partner) can unlock the file.');
+            } elseif (!$locked) {
+                flash('error', 'Not locked.');
+            } else {
+                $pdo->prepare('UPDATE engagements SET locked_at = NULL, locked_by = NULL, status = "completed" WHERE id = :id')
+                    ->execute([':id'=>$id]);
+                workflow_log($id, 'unlock', $stage, $stage, $notes);
+                flash('success', 'Engagement unlocked. Changes are allowed again.');
+            }
+        }
+        redirect('/firm/engagement_view.php?id=' . $id);
+    }
+
+    // --- All other mutations require the engagement to be unlocked -----
+    assert_engagement_open($id);
 
     if ($action === 'seed_checklist' && $canEdit) {
         // Pull default categories (firm_id NULL or matching this firm) and
@@ -169,9 +243,55 @@ $dataSummary = $dataStmt->fetch() ?: ['tb_current'=>0, 'tb_prior'=>0, 'gl_rows'=
 require_once __DIR__ . '/../includes/timeline.php';
 $timeline = engagement_timeline($id, 60);
 
+// Approval workflow: current stage, lock state, sign-off history.
+$reviewStage = $eng['review_stage'] ?? 'preparation';
+$isLocked    = !empty($eng['locked_at']);
+$lockedByName = null;
+if ($isLocked && !empty($eng['locked_by'])) {
+    $lb = $pdo->prepare('SELECT name FROM users WHERE id = :id');
+    $lb->execute([':id' => $eng['locked_by']]);
+    $lockedByName = $lb->fetchColumn() ?: null;
+}
+$signoffStmt = $pdo->prepare(
+    'SELECT es.*, u.name AS user_name, u.role AS user_role
+       FROM engagement_signoffs es
+       LEFT JOIN users u ON u.id = es.user_id
+      WHERE es.engagement_id = :e
+      ORDER BY es.created_at DESC
+      LIMIT 20'
+);
+$signoffStmt->execute([':e' => $id]);
+$signoffs = $signoffStmt->fetchAll();
+$stages   = workflow_stages();
+$myRole   = current_role();
+$canApprove = in_array($myRole, workflow_approvers($reviewStage), true);
+
 $pageTitle = $eng['company_name'] . ' · ' . $eng['financial_year'];
 require __DIR__ . '/../includes/header.php';
 ?>
+
+<?php if ($isLocked): ?>
+    <div class="mb-6 rounded-lg bg-slate-800 text-slate-100 px-5 py-3 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-2 text-sm">
+            <svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+            </svg>
+            <span><strong>Locked &amp; archived.</strong>
+                Signed off<?= $lockedByName ? ' · locked by ' . e($lockedByName) : '' ?>
+                · <?= e(datefmt($eng['locked_at'], 'd M Y H:i')) ?>. This file is read-only.</span>
+        </div>
+        <?php if ($myRole === 'firm_admin'): ?>
+            <form method="post">
+                <?= csrf_field() ?>
+                <input type="hidden" name="_action" value="wf_unlock">
+                <button class="rounded bg-amber-500 text-amber-950 hover:bg-amber-400 px-3 py-1.5 text-xs font-semibold">
+                    Unlock
+                </button>
+            </form>
+        <?php endif; ?>
+    </div>
+<?php endif; ?>
 
 <!-- Header card -->
 <div class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
@@ -225,6 +345,109 @@ require __DIR__ . '/../includes/header.php';
             <?php endif; ?>
         </div>
     </div>
+</div>
+
+<!-- Approval workflow tracker -->
+<div class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
+    <div class="flex flex-wrap items-center justify-between gap-4">
+        <div class="flex-1 min-w-[260px]">
+            <h3 class="font-semibold text-slate-900 mb-3">Review &amp; sign-off</h3>
+            <!-- Stage progress -->
+            <ol class="flex flex-wrap items-center gap-1 text-xs">
+                <?php
+                $curOrder = $stages[$reviewStage]['order'] ?? 0;
+                $last = array_key_last($stages);
+                foreach ($stages as $key => $meta):
+                    $done    = $meta['order'] < $curOrder || $isLocked;
+                    $current = $key === $reviewStage && !$isLocked;
+                    $dot = $done ? 'bg-emerald-500 text-white'
+                         : ($current ? 'bg-brand-600 text-white' : 'bg-slate-200 text-slate-500');
+                ?>
+                    <li class="flex items-center gap-1">
+                        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full <?= $dot ?> font-semibold">
+                            <?php if ($done): ?>&#10003;<?php else: ?><?= (int) $meta['order'] + 1 ?><?php endif; ?>
+                        </span>
+                        <span class="<?= $current ? 'font-semibold text-slate-900' : 'text-slate-500' ?>">
+                            <?= e($meta['label']) ?>
+                        </span>
+                        <?php if ($key !== $last): ?>
+                            <span class="mx-1 text-slate-300">&rarr;</span>
+                        <?php endif; ?>
+                    </li>
+                <?php endforeach; ?>
+                <?php if ($isLocked): ?>
+                    <li class="flex items-center gap-1">
+                        <span class="mx-1 text-slate-300">&rarr;</span>
+                        <span class="inline-flex items-center gap-1 rounded-full bg-slate-800 text-white px-2 py-0.5 font-semibold">Locked</span>
+                    </li>
+                <?php endif; ?>
+            </ol>
+        </div>
+
+        <!-- Actions -->
+        <?php if (!$isLocked): ?>
+            <div class="flex flex-wrap items-end gap-2">
+                <?php if ($reviewStage !== 'signed_off' && $canApprove): ?>
+                    <form method="post" class="flex items-end gap-2">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="_action"
+                               value="<?= $reviewStage === 'preparation' ? 'wf_submit' : 'wf_approve' ?>">
+                        <input type="text" name="notes" placeholder="Optional note"
+                               class="rounded border border-slate-300 text-xs px-2 py-1.5 w-40">
+                        <button class="rounded bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 text-sm font-medium whitespace-nowrap">
+                            <?= e(workflow_forward_label($reviewStage)) ?>
+                        </button>
+                    </form>
+                <?php endif; ?>
+                <?php if ($reviewStage !== 'preparation' && $reviewStage !== 'signed_off' && $canApprove): ?>
+                    <form method="post">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="_action" value="wf_return">
+                        <button class="rounded border border-rose-300 text-rose-700 hover:bg-rose-50 px-3 py-1.5 text-sm whitespace-nowrap">
+                            Return to prep
+                        </button>
+                    </form>
+                <?php endif; ?>
+                <?php if ($reviewStage === 'signed_off' && $myRole === 'firm_admin'): ?>
+                    <form method="post" onsubmit="return confirm('Lock the engagement? It becomes read-only until unlocked.');">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="_action" value="wf_lock">
+                        <button class="rounded bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 text-sm font-medium whitespace-nowrap">
+                            Lock &amp; archive
+                        </button>
+                    </form>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
+    </div>
+
+    <?php if (!empty($signoffs)): ?>
+        <details class="mt-4">
+            <summary class="text-xs text-brand-600 cursor-pointer hover:underline">
+                Sign-off history (<?= count($signoffs) ?>)
+            </summary>
+            <ul class="mt-2 space-y-1.5">
+                <?php foreach ($signoffs as $so): ?>
+                    <li class="flex items-baseline justify-between gap-3 text-xs">
+                        <span>
+                            <span class="font-medium"><?= e(ucwords(str_replace('_',' ',$so['action']))) ?></span>
+                            <?php if ($so['from_stage'] && $so['to_stage'] && $so['from_stage'] !== $so['to_stage']): ?>
+                                <span class="text-slate-500">
+                                    <?= e($stages[$so['from_stage']]['label'] ?? $so['from_stage']) ?>
+                                    &rarr; <?= e($stages[$so['to_stage']]['label'] ?? $so['to_stage']) ?>
+                                </span>
+                            <?php endif; ?>
+                            · <?= e($so['user_name'] ?? 'System') ?>
+                            <?php if (!empty($so['notes'])): ?>
+                                <span class="text-slate-500">— "<?= e($so['notes']) ?>"</span>
+                            <?php endif; ?>
+                        </span>
+                        <time class="text-slate-400 whitespace-nowrap"><?= e(datefmt($so['created_at'], 'd M H:i')) ?></time>
+                    </li>
+                <?php endforeach; ?>
+            </ul>
+        </details>
+    <?php endif; ?>
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
