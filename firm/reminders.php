@@ -15,6 +15,25 @@ require_once __DIR__ . '/../includes/reminders.php';
 $pdo    = db();
 $firmId = current_firm_id();
 
+// The reminders feature needs migration 005. Fail gracefully if it
+// hasn't been applied rather than throwing a blank 500.
+if (!table_exists('reminders')) {
+    $pageTitle = 'Reminders';
+    require __DIR__ . '/../includes/header.php';
+    ?>
+    <div class="bg-white rounded-lg border border-amber-200 p-6 max-w-2xl">
+        <h3 class="font-semibold text-slate-900 mb-2">Reminders not set up yet</h3>
+        <p class="text-sm text-slate-600 mb-3">
+            This module needs a database migration that hasn't been applied to this
+            environment. Run <code>sql/005_reminders.sql</code> against your database, then reload.
+        </p>
+        <pre class="bg-slate-900 text-slate-100 rounded p-3 text-xs overflow-x-auto">mysql -u &lt;user&gt; -p &lt;database&gt; &lt; sql/005_reminders.sql</pre>
+    </div>
+    <?php
+    require __DIR__ . '/../includes/footer.php';
+    exit;
+}
+
 $result = null;       // populated after a send so we can show the WhatsApp link
 $resultEng = null;
 

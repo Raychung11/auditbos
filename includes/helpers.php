@@ -14,6 +14,25 @@ if (!defined('AUDITBOS_BOOTSTRAPPED')) {
 }
 
 /**
+ * Does a table exist in the current database? Cached per request.
+ * Used to fail gracefully when a migration hasn't been applied yet.
+ */
+function table_exists(string $name): bool
+{
+    static $cache = [];
+    if (array_key_exists($name, $cache)) {
+        return $cache[$name];
+    }
+    try {
+        $stmt = db()->prepare('SHOW TABLES LIKE :n');
+        $stmt->execute([':n' => $name]);
+        return $cache[$name] = (bool) $stmt->fetchColumn();
+    } catch (Throwable $e) {
+        return $cache[$name] = false;
+    }
+}
+
+/**
  * HTML-escape a value for safe inline output.
  */
 function e($value): string
