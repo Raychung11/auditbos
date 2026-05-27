@@ -219,6 +219,12 @@ function ai_registry(): array
             'entity_type' => 'engagement',
             'title'       => 'GL exception analysis',
         ],
+        'ai_going_concern_assessment' => [
+            'prompt'      => 'You are an audit manager performing a going-concern assessment. You receive the client\'s key financial-health ratios (current vs prior) and the materiality assessment. Evaluate whether there are events or conditions that may cast significant doubt on the entity\'s ability to continue as a going concern. Reference the specific ratios. Conclude with one of: (a) no material uncertainty, (b) material uncertainty exists — disclosure needed, (c) going-concern basis inappropriate. List the audit procedures you would perform and any management representations to obtain.',
+            'output_type' => 'going_concern',
+            'entity_type' => 'engagement',
+            'title'       => 'Going-concern assessment',
+        ],
     ];
 }
 

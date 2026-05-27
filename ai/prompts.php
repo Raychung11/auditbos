@@ -45,6 +45,8 @@ function ai_build_user_message(string $functionName, ?int $engagementId, array $
             return ai_payload_review_wp((int)($payload['working_paper_id'] ?? 0));
         case 'ai_analyze_gl_exceptions':
             return ai_payload_gl_exceptions($engagementId);
+        case 'ai_going_concern_assessment':
+            return ai_payload_going_concern($engagementId);
         default:
             return "(No structured data available — function: {$functionName})";
     }
@@ -500,6 +502,44 @@ function ai_payload_gl_exceptions(?int $engagementId): string
     $out .= "\nReview these exceptions. Tell the team which to investigate first and why, "
         . "the specific follow-up procedure for each material item, and whether any pattern "
         . "suggests error or fraud. Be proportionate. Group findings High / Medium / Low.";
+    return $out;
+}
+
+// ---------------------------------------------------------------------
+// Going-concern assessment — ratios + materiality fed to Claude.
+// ---------------------------------------------------------------------
+function ai_payload_going_concern(?int $engagementId): string
+{
+    if (!$engagementId) return "No engagement context provided.";
+    require_once __DIR__ . '/../includes/analytical.php';
+    $header = ai_engagement_header($engagementId);
+    $ratios = analytical_ratios($engagementId);
+    if (empty($ratios)) {
+        return $header . "\n\nNo trial balance imported — cannot compute ratios.";
+    }
+
+    $out = $header . "\n\nFINANCIAL-HEALTH RATIOS (current vs prior):\n";
+    foreach ($ratios as $r) {
+        $cur = $r['cur'] === null ? 'n/a' : number_format($r['cur'], $r['unit'] === 'amount' ? 2 : 2)
+            . ($r['unit'] === '%' ? '%' : ($r['unit'] === 'x' ? 'x' : ''));
+        $pri = $r['pri'] === null ? 'n/a' : number_format($r['pri'], $r['unit'] === 'amount' ? 2 : 2)
+            . ($r['unit'] === '%' ? '%' : ($r['unit'] === 'x' ? 'x' : ''));
+        $flag = $r['concern'] ? '  [FLAG]' : '';
+        $out .= "  - {$r['label']}: current {$cur} · prior {$pri}{$flag}\n";
+    }
+
+    $mat = materiality_load($engagementId);
+    if ($mat) {
+        $out .= "\nMATERIALITY:\n"
+            . "  Basis: {$mat['basis']} = " . number_format((float) $mat['basis_amount'], 2) . "\n"
+            . "  Planning materiality: " . number_format((float) $mat['planning_amount'], 2) . "\n"
+            . "  Performance materiality: " . number_format((float) $mat['performance_amount'], 2) . "\n";
+    }
+
+    $out .= "\nPerform the going-concern assessment. Reference the specific ratios, "
+        . "state your conclusion (no material uncertainty / material uncertainty — disclose / "
+        . "going-concern basis inappropriate), list the audit procedures you would perform, "
+        . "and the management representations to obtain.";
     return $out;
 }
 

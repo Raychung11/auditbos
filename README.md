@@ -553,6 +553,7 @@ document root at the project root.
 | `sql/003_lead_schedules.sql` | `lead_schedule_overrides` + adds `lead_area` to `audit_working_papers` |
 | `sql/004_approval_workflow.sql` | `engagement_signoffs` + adds `review_stage` / `locked_at` / `locked_by` to `engagements` |
 | `sql/005_reminders.sql` | `reminders` log table |
+| `sql/006_materiality.sql` | `engagement_materiality` table |
 
 Run them in order. They're idempotent on `CREATE TABLE IF NOT EXISTS` for the new tables
 but the `ALTER TABLE` statements in `002` will fail if run twice — wrap in your own
@@ -628,6 +629,7 @@ find . -name "*.php" -not -path "./.git/*" -print0 | xargs -0 -n1 php -l | grep 
 - ✅ Trial balance variance view
 - ✅ Lead schedules (TB grouped into audit areas, reclassify, tie to working paper)
 - ✅ GL analytics (duplicate payments, round numbers, weekend postings, outliers, Benford, concentration)
+- ✅ Materiality calculator + going-concern ratios (current vs prior)
 - ✅ Financial statement export (SOFP + SOCI)
 - ✅ AI assistant (8 functions + document classifier)
 - ✅ Staff KPI module + partner dashboard
@@ -644,6 +646,7 @@ find . -name "*.php" -not -path "./.git/*" -print0 | xargs -0 -n1 php -l | grep 
 - 🚫 MBRS submission
 - 🚫 SOCIE (Statement of Changes in Equity) — needs share-capital history
 - 🚫 Cashflow statement
+- 🚫 Aging analysis (debtor/creditor 30/60/90/120+) — needs an open-item aging-listing import
 - 🚫 MFRS-compliant notes / disclosures
 - 🚫 Per-account FS mapping UI (heuristic classifier covers ~95% of standard CoAs)
 - 🚫 Live accounting-API integrations (CSV/XLSX export already covers SQL Account, AutoCount, UBS, Bukku, Million, Financio)
