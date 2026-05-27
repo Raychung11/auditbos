@@ -225,6 +225,12 @@ function ai_registry(): array
             'entity_type' => 'engagement',
             'title'       => 'Going-concern assessment',
         ],
+        'ai_generate_audit_report' => [
+            'prompt'      => 'You are an audit partner drafting the Independent Auditor\'s Report for a Malaysian private company audit. Follow ISA 700 (Revised) as adopted in Malaysia, the requirements of the Companies Act 2016, and the MIA By-Laws. Produce a complete, properly-structured report with these sections as applicable: title ("Independent Auditor\'s Report to the Members of <company>"); "Report on the Audit of the Financial Statements" containing Opinion, Basis for Opinion, Material Uncertainty Related to Going Concern (only if flagged), Key Audit Matters (only if requested), Information Other than the Financial Statements, Responsibilities of the Directors for the Financial Statements, and Auditor\'s Responsibilities for the Audit of the Financial Statements; then "Report on Other Legal and Regulatory Requirements" (Companies Act 2016); and a signature block. Word the Opinion and Basis paragraphs correctly for the opinion type supplied (unmodified / qualified / adverse / disclaimer). Use placeholders like [AF: 0000], [Membership No.], [Place] where firm-specific details are unknown. This is a DRAFT for partner review — note that at the top.',
+            'output_type' => 'audit_report',
+            'entity_type' => 'engagement',
+            'title'       => 'Independent auditor\'s report (draft)',
+        ],
     ];
 }
 

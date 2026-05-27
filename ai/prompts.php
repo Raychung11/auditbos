@@ -47,6 +47,8 @@ function ai_build_user_message(string $functionName, ?int $engagementId, array $
             return ai_payload_gl_exceptions($engagementId);
         case 'ai_going_concern_assessment':
             return ai_payload_going_concern($engagementId);
+        case 'ai_generate_audit_report':
+            return ai_payload_audit_report($engagementId, $payload);
         default:
             return "(No structured data available — function: {$functionName})";
     }
@@ -540,6 +542,63 @@ function ai_payload_going_concern(?int $engagementId): string
         . "state your conclusion (no material uncertainty / material uncertainty — disclose / "
         . "going-concern basis inappropriate), list the audit procedures you would perform, "
         . "and the management representations to obtain.";
+    return $out;
+}
+
+// ---------------------------------------------------------------------
+// Independent auditor's report — opinion type + financials → full draft.
+// ---------------------------------------------------------------------
+function ai_payload_audit_report(?int $engagementId, array $payload): string
+{
+    if (!$engagementId) return "No engagement context provided.";
+    require_once __DIR__ . '/../includes/analytical.php';
+    $header = ai_engagement_header($engagementId);
+
+    $opinionType = (string)($payload['opinion_type'] ?? 'unmodified');
+    $basis       = trim((string)($payload['basis'] ?? ''));
+    $includeKam  = !empty($payload['include_kam']);
+    $reportDate  = trim((string)($payload['report_date'] ?? ''));
+    $firmName    = trim((string)($payload['firm_name'] ?? ''));
+    $place       = trim((string)($payload['place'] ?? ''));
+
+    $metrics = analytical_metrics($engagementId);
+    $c = $metrics['cur'];
+
+    $out = $header . "\n\nKEY FINANCIAL FIGURES (current year):\n"
+        . "  Revenue:       " . number_format($c['revenue'], 2) . "\n"
+        . "  Profit/(loss): " . number_format($c['profit'], 2) . "\n"
+        . "  Total assets:  " . number_format($c['total_assets'], 2) . "\n"
+        . "  Net assets:    " . number_format($c['net_assets'], 2) . "\n";
+
+    // Going-concern signal from the ratios.
+    $ratios = analytical_ratios($engagementId);
+    $gcFlag = false;
+    foreach ($ratios as $r) { if (!empty($r['concern'])) { $gcFlag = true; break; } }
+    $out .= "  Going-concern indicators present: " . ($gcFlag ? "YES (ratios flagged)" : "no") . "\n";
+
+    $mat = materiality_load($engagementId);
+    if ($mat) {
+        $out .= "  Planning materiality: " . number_format((float) $mat['planning_amount'], 2) . "\n";
+    }
+
+    $out .= "\nREPORT PARAMETERS:\n"
+        . "  Opinion type: {$opinionType}\n"
+        . ($basis !== '' ? "  Basis for modification: {$basis}\n" : '')
+        . "  Include Key Audit Matters section: " . ($includeKam ? 'yes' : 'no') . "\n"
+        . ($reportDate !== '' ? "  Report date: {$reportDate}\n" : '')
+        . ($firmName !== '' ? "  Audit firm name: {$firmName}\n" : '')
+        . ($place !== '' ? "  Place of signature: {$place}\n" : '');
+
+    $out .= "\nDraft the complete Independent Auditor's Report now. ";
+    if ($opinionType !== 'unmodified') {
+        $out .= "This is a {$opinionType} opinion — word the Opinion and the Basis for "
+              . ($opinionType === 'disclaimer' ? 'Disclaimer of' : ($opinionType === 'adverse' ? 'Adverse' : 'Qualified'))
+              . " Opinion paragraphs accordingly, referencing the basis supplied. ";
+    }
+    if ($gcFlag) {
+        $out .= "Include a 'Material Uncertainty Related to Going Concern' section given the flagged ratios. ";
+    }
+    $out .= "Mark it clearly as a DRAFT for partner review.";
     return $out;
 }
 

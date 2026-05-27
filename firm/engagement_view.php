@@ -623,6 +623,10 @@ require __DIR__ . '/../includes/header.php';
                    class="mt-2 block text-center rounded border border-slate-300 px-3 py-1.5 text-xs hover:bg-slate-50">
                     Financial statements
                 </a>
+                <a href="/reports/audit_report.php?engagement_id=<?= (int) $eng['id'] ?>"
+                   class="mt-2 block text-center rounded border border-slate-300 px-3 py-1.5 text-xs hover:bg-slate-50">
+                    Auditor's report
+                </a>
             </div>
         </div>
 

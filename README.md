@@ -333,6 +333,9 @@ user message before sending. Claude reasons over the actual job, not generic ins
 | `ai_summarize_engagement_status` | Docs + WPs + data summary | Status briefing for a partner |
 | `ai_partner_review_assistant` | Same as summarize, partner framing | Sign-off-ready review pack |
 | `ai_classify_document` | One uploaded PDF/image + open doc requests | JSON: suggested request match + confidence + summary + key figures |
+| `ai_analyze_gl_exceptions` | GL analytics output (duplicates/round/weekend/Benford/etc.) | Prioritised investigate-first memo by risk |
+| `ai_going_concern_assessment` | Ratios + materiality | Going-concern conclusion + procedures + representations |
+| `ai_generate_audit_report` | Engagement + FS + materiality + opinion type | Full Independent Auditor's Report draft |
 
 **Cost transparency.** Per-call cost is computed from `usage.input_tokens` and
 `usage.output_tokens`, converted USD → MYR via `AI_USD_TO_MYR`, optionally multiplied by
@@ -630,6 +633,7 @@ find . -name "*.php" -not -path "./.git/*" -print0 | xargs -0 -n1 php -l | grep 
 - ✅ Lead schedules (TB grouped into audit areas, reclassify, tie to working paper)
 - ✅ GL analytics (duplicate payments, round numbers, weekend postings, outliers, Benford, concentration)
 - ✅ Materiality calculator + going-concern ratios (current vs prior)
+- ✅ Independent auditor's report draft generator (4 opinion types, ISA 700 / Companies Act 2016 structure)
 - ✅ Financial statement export (SOFP + SOCI)
 - ✅ AI assistant (8 functions + document classifier)
 - ✅ Staff KPI module + partner dashboard
@@ -647,7 +651,7 @@ find . -name "*.php" -not -path "./.git/*" -print0 | xargs -0 -n1 php -l | grep 
 - 🚫 SOCIE (Statement of Changes in Equity) — needs share-capital history
 - 🚫 Cashflow statement
 - 🚫 Aging analysis (debtor/creditor 30/60/90/120+) — needs an open-item aging-listing import
-- 🚫 MFRS-compliant notes / disclosures
+- 🚫 MFRS-compliant notes / disclosures (the auditor's report draft is generated; the full FS with notes is not)
 - 🚫 Per-account FS mapping UI (heuristic classifier covers ~95% of standard CoAs)
 - 🚫 Live accounting-API integrations (CSV/XLSX export already covers SQL Account, AutoCount, UBS, Bukku, Million, Financio)
 - 🚫 SMTP / SendGrid integration (reminders use PHP `mail()`; WhatsApp is a deep-link, not an API send)
