@@ -49,6 +49,8 @@ function ai_build_user_message(string $functionName, ?int $engagementId, array $
             return ai_payload_going_concern($engagementId);
         case 'ai_generate_audit_report':
             return ai_payload_audit_report($engagementId, $payload);
+        case 'ai_analyze_aging':
+            return ai_payload_aging($engagementId, $payload);
         default:
             return "(No structured data available — function: {$functionName})";
     }
@@ -599,6 +601,54 @@ function ai_payload_audit_report(?int $engagementId, array $payload): string
         $out .= "Include a 'Material Uncertainty Related to Going Concern' section given the flagged ratios. ";
     }
     $out .= "Mark it clearly as a DRAFT for partner review.";
+    return $out;
+}
+
+// ---------------------------------------------------------------------
+// Aging analysis review — debtor/creditor aging fed to Claude.
+// ---------------------------------------------------------------------
+function ai_payload_aging(?int $engagementId, array $payload): string
+{
+    if (!$engagementId) return "No engagement context provided.";
+    require_once __DIR__ . '/../includes/aging.php';
+    $type = ($payload['aging_type'] ?? 'debtor') === 'creditor' ? 'creditor' : 'debtor';
+    $header = ai_engagement_header($engagementId);
+    $s = aging_summary($engagementId, $type);
+    if (!$s['has_data']) {
+        return $header . "\n\nNo {$type} aging has been imported for this engagement.";
+    }
+    $b = $s['buckets'];
+    $out = $header . "\n\n" . strtoupper($type) . " AGING SUMMARY:\n"
+        . "  Parties: {$s['count']} · Total: " . number_format($s['total'], 2) . "\n"
+        . "  Current (not due): " . number_format($b['current'], 2) . "\n"
+        . "  1–30:   " . number_format($b['d1_30'], 2) . "\n"
+        . "  31–60:  " . number_format($b['d31_60'], 2) . "\n"
+        . "  61–90:  " . number_format($b['d61_90'], 2) . "\n"
+        . "  91–120: " . number_format($b['d91_120'], 2) . "\n"
+        . "  120+:   " . number_format($b['over_120'], 2) . "\n"
+        . "  Overdue: " . number_format($s['overdue'], 2)
+        . ($s['overdue_pct'] !== null ? " (" . number_format($s['overdue_pct'], 1) . "% of total)" : '') . "\n"
+        . "  Over 90: " . number_format($s['over_90'], 2)
+        . ($s['over_90_pct'] !== null ? " (" . number_format($s['over_90_pct'], 1) . "% of total)" : '') . "\n";
+
+    $worst = aging_most_overdue($engagementId, $type, 15);
+    if (!empty($worst)) {
+        $out .= "\nMOST OVERDUE PARTIES (over 90 days):\n";
+        foreach ($worst as $w) {
+            $out .= "  - {$w['party_name']}: over-90 " . number_format((float) $w['over_90'], 2)
+                . " (of which 120+: " . number_format((float) $w['days_over_120'], 2) . ")\n";
+        }
+    }
+
+    if ($type === 'debtor') {
+        $out .= "\nReview recoverability / ECL. Which balances likely need provision and why? "
+            . "Is the overall provision likely adequate given the over-90 exposure? "
+            . "Propose recovery and confirmation procedures. Group findings by risk.";
+    } else {
+        $out .= "\nReview the payables aging. Flag long-outstanding or possibly disputed balances, "
+            . "consider completeness of liabilities and possible unrecorded liabilities, "
+            . "and propose procedures. Group findings by risk.";
+    }
     return $out;
 }
 

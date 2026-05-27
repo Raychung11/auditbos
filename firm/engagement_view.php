@@ -619,6 +619,10 @@ require __DIR__ . '/../includes/header.php';
                    class="mt-2 block text-center rounded border border-slate-300 px-3 py-1.5 text-xs hover:bg-slate-50">
                     Materiality &amp; ratios
                 </a>
+                <a href="/audit/aging.php?engagement_id=<?= (int) $eng['id'] ?>"
+                   class="mt-2 block text-center rounded border border-slate-300 px-3 py-1.5 text-xs hover:bg-slate-50">
+                    Aging analysis
+                </a>
                 <a href="/reports/financial_statements.php?engagement_id=<?= (int) $eng['id'] ?>"
                    class="mt-2 block text-center rounded border border-slate-300 px-3 py-1.5 text-xs hover:bg-slate-50">
                     Financial statements

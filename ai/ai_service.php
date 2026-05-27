@@ -231,6 +231,12 @@ function ai_registry(): array
             'entity_type' => 'engagement',
             'title'       => 'Independent auditor\'s report (draft)',
         ],
+        'ai_analyze_aging' => [
+            'prompt'      => 'You are an audit senior reviewing an aging analysis. For a DEBTOR (receivables) aging, focus on recoverability and expected credit losses (ECL) — flag balances that likely need provision, assess whether the provision appears adequate, and propose recovery/confirmation procedures. For a CREDITOR (payables) aging, focus on long-outstanding or disputed balances, completeness of liabilities, and possible unrecorded liabilities. Be specific about the parties and amounts. Output a short memo with findings grouped by risk and recommended procedures.',
+            'output_type' => 'aging_review',
+            'entity_type' => 'engagement',
+            'title'       => 'Aging analysis review',
+        ],
     ];
 }
 

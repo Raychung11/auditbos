@@ -124,6 +124,18 @@ require __DIR__ . '/../includes/header.php';
             <div class="text-lg font-semibold mt-1">Import General Ledger</div>
             <p class="text-xs text-slate-500 mt-1">Transaction-level data, batched for large files.</p>
         </a>
+        <a href="/import/aging.php?engagement_id=<?= (int) $engagementId ?>&type=debtor"
+           class="bg-white rounded-lg border border-slate-200 p-5 hover:shadow-md transition block">
+            <div class="text-xs uppercase tracking-wide text-slate-500">Import</div>
+            <div class="text-lg font-semibold mt-1">Debtor / Creditor Aging</div>
+            <p class="text-xs text-slate-500 mt-1">Pre-bucketed aging listing for receivables / payables.</p>
+        </a>
+        <a href="/audit/aging.php?engagement_id=<?= (int) $engagementId ?>"
+           class="bg-white rounded-lg border border-slate-200 p-5 hover:shadow-md transition block">
+            <div class="text-xs uppercase tracking-wide text-slate-500">View</div>
+            <div class="text-lg font-semibold mt-1">Aging Analysis</div>
+            <p class="text-xs text-slate-500 mt-1">Bucket exposure, most-overdue, ECL focus.</p>
+        </a>
     </div>
 
     <h3 class="text-sm font-semibold text-slate-900 uppercase tracking-wide mb-3">Recent import batches</h3>

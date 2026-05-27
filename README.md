@@ -557,6 +557,7 @@ document root at the project root.
 | `sql/004_approval_workflow.sql` | `engagement_signoffs` + adds `review_stage` / `locked_at` / `locked_by` to `engagements` |
 | `sql/005_reminders.sql` | `reminders` log table |
 | `sql/006_materiality.sql` | `engagement_materiality` table |
+| `sql/007_aging.sql` | `aging_items` table (debtor / creditor aging) |
 
 Run them in order. They're idempotent on `CREATE TABLE IF NOT EXISTS` for the new tables
 but the `ALTER TABLE` statements in `002` will fail if run twice — wrap in your own
@@ -633,6 +634,7 @@ find . -name "*.php" -not -path "./.git/*" -print0 | xargs -0 -n1 php -l | grep 
 - ✅ Lead schedules (TB grouped into audit areas, reclassify, tie to working paper)
 - ✅ GL analytics (duplicate payments, round numbers, weekend postings, outliers, Benford, concentration)
 - ✅ Materiality calculator + going-concern ratios (current vs prior)
+- ✅ Debtor / creditor aging analysis (import listing, bucket exposure, ECL focus, AI review)
 - ✅ Independent auditor's report draft generator (4 opinion types, ISA 700 / Companies Act 2016 structure)
 - ✅ Financial statement export (SOFP + SOCI)
 - ✅ AI assistant (8 functions + document classifier)
@@ -650,7 +652,6 @@ find . -name "*.php" -not -path "./.git/*" -print0 | xargs -0 -n1 php -l | grep 
 - 🚫 MBRS submission
 - 🚫 SOCIE (Statement of Changes in Equity) — needs share-capital history
 - 🚫 Cashflow statement
-- 🚫 Aging analysis (debtor/creditor 30/60/90/120+) — needs an open-item aging-listing import
 - 🚫 MFRS-compliant notes / disclosures (the auditor's report draft is generated; the full FS with notes is not)
 - 🚫 Per-account FS mapping UI (heuristic classifier covers ~95% of standard CoAs)
 - 🚫 Live accounting-API integrations (CSV/XLSX export already covers SQL Account, AutoCount, UBS, Bukku, Million, Financio)

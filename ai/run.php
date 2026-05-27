@@ -46,8 +46,10 @@ if ($eid > 0) {
     }
 }
 
-// Optional entity context (e.g. working_paper_id for ai_review_working_paper)
+// Optional entity context passed through to the prompt builder.
 $workingPaperId = isset($_REQUEST['working_paper_id']) ? (int) $_REQUEST['working_paper_id'] : 0;
+$agingType      = ($_REQUEST['aging_type'] ?? '') === 'creditor' ? 'creditor'
+                : (($_REQUEST['aging_type'] ?? '') === 'debtor' ? 'debtor' : '');
 
 $result = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -55,6 +57,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $payload = ['confirmed' => true];
     if ($workingPaperId > 0) {
         $payload['working_paper_id'] = $workingPaperId;
+    }
+    if ($agingType !== '') {
+        $payload['aging_type'] = $agingType;
     }
     $result = ai_run($fn, $payload, $eid ?: null);
     if ($result['ok']) {
@@ -104,6 +109,9 @@ require __DIR__ . '/../includes/header.php';
             <?php endif; ?>
             <?php if ($workingPaperId): ?>
                 <input type="hidden" name="working_paper_id" value="<?= (int) $workingPaperId ?>">
+            <?php endif; ?>
+            <?php if ($agingType !== ''): ?>
+                <input type="hidden" name="aging_type" value="<?= e($agingType) ?>">
             <?php endif; ?>
             <button class="rounded bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 text-sm font-medium">
                 Run AI assistant
