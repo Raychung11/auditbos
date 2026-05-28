@@ -150,11 +150,22 @@ require __DIR__ . '/../includes/header.php';
     workplan_step_for_context('module', 'misstatements', (int) $engagementId)); ?>
 </div>
 
-<div class="mt-1 mb-4">
-    <h2 class="text-xl font-semibold text-slate-900">
-        <?= e($engagement['company_name']) ?> — Schedule of Uncorrected Misstatements
-    </h2>
-    <p class="text-sm text-slate-500"><?= e($engagement['financial_year']) ?> · ISA 450</p>
+<div class="mt-1 mb-4 flex flex-wrap items-end justify-between gap-3">
+    <div>
+        <h2 class="text-xl font-semibold text-slate-900">
+            <?= e($engagement['company_name']) ?> — Schedule of Uncorrected Misstatements
+        </h2>
+        <p class="text-sm text-slate-500"><?= e($engagement['financial_year']) ?> · ISA 450</p>
+    </div>
+    <?php if (defined('AI_ENABLED') && AI_ENABLED && !empty($items)): ?>
+        <a href="/ai/run.php?fn=ai_review_misstatements&engagement_id=<?= (int) $engagementId ?>"
+           class="inline-flex items-center gap-1 rounded bg-violet-600 hover:bg-violet-700 text-white px-3 py-1.5 text-sm font-medium">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+            </svg>
+            AI misstatement review
+        </a>
+    <?php endif; ?>
 </div>
 
 <!-- Summary vs materiality -->

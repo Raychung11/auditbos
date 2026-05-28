@@ -575,6 +575,52 @@ function workplan_update_step(int $engagementId, int $stepNo, array $fields): bo
 }
 
 /**
+ * Map a workplan step code → the AI function that helps with it.
+ * Used to surface inline "Run AI on this step" buttons.
+ *
+ * @return array{fn:string, label:string}|null
+ */
+function workplan_step_ai(string $code): ?array
+{
+    static $map = [
+        'tb_import'         => ['fn'=>'ai_analyze_trial_balance',   'label'=>'AI variance analysis'],
+        'documents_intake'  => ['fn'=>'ai_generate_audit_queries',  'label'=>'AI draft client queries'],
+        'cash_bank'         => ['fn'=>'ai_analyze_gl_exceptions',   'label'=>'AI GL exception review'],
+        'trade_recv'        => ['fn'=>'ai_analyze_aging',           'label'=>'AI debtor aging review'],
+        'other_recv'        => ['fn'=>'ai_analyze_aging',           'label'=>'AI aging review'],
+        'trade_pay'         => ['fn'=>'ai_analyze_aging',           'label'=>'AI creditor aging review'],
+        'expenses'          => ['fn'=>'ai_analyze_gl_exceptions',   'label'=>'AI expense exception review'],
+        'revenue'           => ['fn'=>'ai_detect_variance',         'label'=>'AI revenue variance scan'],
+        'related_party'     => ['fn'=>'ai_review_related_parties',  'label'=>'AI related-party review'],
+        'tax'               => ['fn'=>'ai_review_tax_computation',  'label'=>'AI tax review'],
+        'subsequent_events' => ['fn'=>'ai_detect_variance',         'label'=>'AI subsequent-events scan'],
+        'going_concern'     => ['fn'=>'ai_going_concern_assessment','label'=>'AI going-concern assessment'],
+        'misstatement_sum'  => ['fn'=>'ai_review_misstatements',    'label'=>'AI misstatement review'],
+        'completion'        => ['fn'=>'ai_summarize_engagement_status','label'=>'AI status summary'],
+        'audit_report'      => ['fn'=>'ai_generate_audit_report',   'label'=>'AI report drafter'],
+    ];
+    return $map[$code] ?? null;
+}
+
+/**
+ * Build the URL for an AI run targeted at a workplan step, with the
+ * right entity context pre-filled (engagement_id at minimum; aging_type
+ * for receivables/payables; etc).
+ */
+function workplan_step_ai_url(string $code, int $engagementId): ?string
+{
+    $ai = workplan_step_ai($code);
+    if (!$ai) { return null; }
+    $params = ['fn' => $ai['fn'], 'engagement_id' => $engagementId];
+    if ($code === 'trade_recv' || $code === 'other_recv') {
+        $params['aging_type'] = 'debtor';
+    } elseif ($code === 'trade_pay') {
+        $params['aging_type'] = 'creditor';
+    }
+    return '/ai/run.php?' . http_build_query($params);
+}
+
+/**
  * Per-step deep links into the existing modules that actually do the work.
  * Keeps the workplan view a control panel — staff click straight through
  * to TB import, lead schedules, AI panel, etc., without losing the SOP.

@@ -121,11 +121,22 @@ require __DIR__ . '/../includes/header.php';
         </h2>
         <p class="text-sm text-slate-500"><?= e($engagement['financial_year']) ?> · gate before partner sign-off</p>
     </div>
-    <div class="text-right">
-        <div class="text-2xl font-bold <?= $isReady ? 'text-emerald-700' : 'text-slate-900' ?>">
-            <?= $doneN ?> / <?= $totalN ?>
+    <div class="flex items-end gap-4">
+        <?php if (defined('AI_ENABLED') && AI_ENABLED): ?>
+            <a href="/ai/run.php?fn=ai_summarize_engagement_status&engagement_id=<?= (int) $engagementId ?>"
+               class="inline-flex items-center gap-1 rounded bg-violet-600 hover:bg-violet-700 text-white px-3 py-1.5 text-sm font-medium">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                </svg>
+                AI completion summary
+            </a>
+        <?php endif; ?>
+        <div class="text-right">
+            <div class="text-2xl font-bold <?= $isReady ? 'text-emerald-700' : 'text-slate-900' ?>">
+                <?= $doneN ?> / <?= $totalN ?>
+            </div>
+            <div class="text-xs text-slate-500">items cleared</div>
         </div>
-        <div class="text-xs text-slate-500">items cleared</div>
     </div>
 </div>
 

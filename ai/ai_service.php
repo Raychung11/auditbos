@@ -237,6 +237,24 @@ function ai_registry(): array
             'entity_type' => 'engagement',
             'title'       => 'Aging analysis review',
         ],
+        'ai_review_related_parties' => [
+            'prompt'      => 'You are an audit senior performing the MFRS 124 related-party review. You receive the engagement\'s related-party register and the transactions logged against each party. Assess: (1) completeness — likely missing parties given the entity\'s structure (directors named in KYC, subsidiaries, KMP); (2) arm\'s-length analysis — are pricing terms in non-arm\'s-length transactions adequately documented; (3) disclosure recommendations under MFRS 124 (relationships, transactions, outstanding balances, KMP compensation); (4) audit procedures needed (director declarations, board minutes review, intercompany confirmations). Output a short memo with sections "Completeness review", "Arm\'s-length assessment", "MFRS 124 disclosure recommendation", "Procedures to perform".',
+            'output_type' => 'related_party_review',
+            'entity_type' => 'engagement',
+            'title'       => 'Related-party review',
+        ],
+        'ai_review_tax_computation' => [
+            'prompt'      => 'You are a Malaysian tax-trained audit senior reviewing the client\'s tax computation. You receive accounting profit, every adjustment line (add-back, deduction, capital allowance) with MFRS/ITA references, the tax rate applied, deferred tax movement, and tax instalments paid (CP204). Assess: (1) completeness of add-backs — typical missing items (private-use depreciation, leave-passage, entertainment full add-back vs 50%, donations to non-approved bodies, fines); (2) reasonableness of capital allowances — alignment with asset register; (3) tax rate appropriateness (24% standard, 17% on first RM150K for SMEs, 15% for selected sectors); (4) deferred tax — temporary differences identified; (5) CP204 vs estimated tax payable variance; (6) SST / e-invoice compliance flags. Output a memo with sections "Completeness gaps", "Computation issues", "Rate review", "Deferred tax", "Procedures recommended". Be specific to Malaysia, cite ITA sections where relevant.',
+            'output_type' => 'tax_review',
+            'entity_type' => 'engagement',
+            'title'       => 'Tax computation review',
+        ],
+        'ai_review_misstatements' => [
+            'prompt'      => 'You are an audit manager reviewing the Schedule of Uncorrected Misstatements (SUM) before partner sign-off. You receive every misstatement raised across the engagement with category (factual / judgemental / projected), PBT / assets / liabilities impact, status (uncorrected / corrected / waived), the lead area and working paper it was raised from, plus the performance materiality and clearly-trivial threshold from the materiality assessment. Assess: (1) aggregate impact vs performance materiality — clear breach / approaching limit / well within; (2) qualitative considerations under ISA 450 (impact on KPIs / covenants / loss-to-profit swing / management remuneration / regulatory thresholds); (3) classification reasonableness (any judgemental items that should be reclassified as factual?); (4) recommended disposition — push client to correct, accept, or request management representation; (5) opinion implication (could the aggregate force a qualified or adverse opinion?). Output a partner-ready memo with a clear bottom line at the top.',
+            'output_type' => 'misstatement_review',
+            'entity_type' => 'engagement',
+            'title'       => 'Misstatement (SUM) review',
+        ],
     ];
 }
 

@@ -646,7 +646,7 @@ find . -name "*.php" -not -path "./.git/*" -print0 | xargs -0 -n1 php -l | grep 
 - ✅ Schedule of Uncorrected Misstatements (SUM, ISA 450) — aggregates uncorrected impact vs performance materiality
 - ✅ Audit completion checklist (auto-driven + manual sign-off items, gate before partner review)
 - ✅ Financial statement export (SOFP + SOCI)
-- ✅ AI assistant (8 functions + document classifier)
+- ✅ AI assistant (15 functions + document classifier) — incl. workplan-aware inline buttons that pre-scope the right function per SOP step (related-party review, tax computation review, misstatement SUM review, going-concern, GL exceptions, aging, audit report drafter, …)
 - ✅ Staff KPI module + partner dashboard
 - ✅ Credit wallet + manual top-ups + transaction ledger
 - ✅ Activity timeline + audit trail

@@ -51,6 +51,12 @@ function ai_build_user_message(string $functionName, ?int $engagementId, array $
             return ai_payload_audit_report($engagementId, $payload);
         case 'ai_analyze_aging':
             return ai_payload_aging($engagementId, $payload);
+        case 'ai_review_related_parties':
+            return ai_payload_related_parties($engagementId);
+        case 'ai_review_tax_computation':
+            return ai_payload_tax_computation($engagementId);
+        case 'ai_review_misstatements':
+            return ai_payload_misstatements($engagementId);
         default:
             return "(No structured data available — function: {$functionName})";
     }
@@ -709,5 +715,202 @@ function ai_payload_review_wp(int $workingPaperId): string
          . "Output: brief paragraph summary, then a list of new review notes in the format:\n"
          . "  [severity] note text\n"
          . "where severity is one of: info, minor, major, critical. Aim for actionable, specific, and proportionate.";
+    return $out;
+}
+
+// ---------------------------------------------------------------------
+// Related-party review (workplan step 20)
+// ---------------------------------------------------------------------
+function ai_payload_related_parties(?int $engagementId): string
+{
+    if (!$engagementId) { return "No engagement context provided."; }
+    $header = ai_engagement_header($engagementId);
+
+    if (!table_exists('related_parties')) {
+        return $header . "\n\nRelated-party module is not installed (sql/010 not applied). No data to review.";
+    }
+
+    require_once __DIR__ . '/../includes/related_party.php';
+    $parties = rp_parties($engagementId);
+    $txns    = rp_transactions($engagementId);
+
+    // Also dump the client's KYC (directors + shareholders) so the AI can
+    // sense-check completeness against who's already in the register.
+    $kyc = db()->prepare(
+        'SELECT c.directors, c.shareholders
+           FROM engagements e
+           JOIN clients c ON c.id = e.client_id
+          WHERE e.id = :e'
+    );
+    $kyc->execute([':e' => $engagementId]);
+    $kycRow = $kyc->fetch() ?: ['directors' => '', 'shareholders' => ''];
+
+    $out = $header . "\n\nCLIENT KYC (for completeness sense-check):\n"
+         . "  Directors:    " . trim($kycRow['directors'] ?: 'n/a') . "\n"
+         . "  Shareholders: " . trim($kycRow['shareholders'] ?: 'n/a') . "\n";
+
+    $relTypes = rp_relationship_types();
+    $txnTypes = rp_txn_types();
+
+    $out .= "\nRELATED-PARTY REGISTER (" . count($parties) . " parties):\n";
+    if (empty($parties)) {
+        $out .= "  (none logged)\n";
+    } else {
+        foreach ($parties as $p) {
+            $out .= sprintf("  • %s  [%s]  outstanding=%s  non_arm_length=%d\n",
+                $p['party_name'],
+                $relTypes[$p['relationship_type']] ?? $p['relationship_type'],
+                number_format((float) $p['total_outstanding'], 2),
+                (int) $p['not_arm_length']
+            );
+            if (!empty($p['registration_no'])) {
+                $out .= "      reg: {$p['registration_no']}\n";
+            }
+            if (!empty($p['notes'])) {
+                $out .= "      notes: {$p['notes']}\n";
+            }
+        }
+    }
+
+    $out .= "\nTRANSACTIONS (" . count($txns) . "):\n";
+    if (empty($txns)) {
+        $out .= "  (none logged)\n";
+    } else {
+        foreach ($txns as $t) {
+            $out .= sprintf("  • %s — %s — amt=%s, outstanding=%s, arm_length=%s%s\n",
+                $t['party_name'],
+                $txnTypes[$t['txn_type']] ?? $t['txn_type'],
+                number_format((float) $t['txn_amount'], 2),
+                number_format((float) $t['balance_outstanding'], 2),
+                strtoupper((string) $t['arm_length']),
+                $t['period_label'] ? " [{$t['period_label']}]" : ''
+            );
+            if (!empty($t['notes'])) {
+                $out .= "      notes: {$t['notes']}\n";
+            }
+        }
+    }
+
+    $out .= "\nPerform an MFRS 124 related-party review. Cover completeness "
+         . "(against the directors/shareholders listed above), arm's-length "
+         . "assessment, disclosure recommendations, and audit procedures.";
+
+    return $out;
+}
+
+// ---------------------------------------------------------------------
+// Tax computation review (workplan step 21)
+// ---------------------------------------------------------------------
+function ai_payload_tax_computation(?int $engagementId): string
+{
+    if (!$engagementId) { return "No engagement context provided."; }
+    $header = ai_engagement_header($engagementId);
+
+    if (!table_exists('tax_computations')) {
+        return $header . "\n\nTax-computation module is not installed (sql/010 not applied).";
+    }
+
+    require_once __DIR__ . '/../includes/tax_computation.php';
+    $data = tax_load($engagementId);
+    if ($data === null) {
+        return $header . "\n\nNo tax computation has been prepared yet. Ask the user to populate the header (accounting profit + rate) first.";
+    }
+
+    $out = $header . "\n\nTAX COMPUTATION HEADER:\n";
+    $out .= sprintf("  Accounting profit (PBT): MYR %s\n", number_format((float) $data['comp']['accounting_profit'], 2));
+    $out .= sprintf("  Tax rate applied:        %s%%\n", number_format((float) $data['comp']['tax_rate_pct'], 2));
+    $out .= sprintf("  Deferred tax movement:   MYR %s\n", number_format((float) $data['comp']['deferred_tax_movement'], 2));
+    $out .= sprintf("  CP204 / tax paid:        MYR %s\n", number_format((float) $data['comp']['tax_paid'], 2));
+    if (!empty($data['comp']['notes'])) {
+        $out .= "  Notes: " . $data['comp']['notes'] . "\n";
+    }
+
+    $cats = tax_adjustment_categories();
+    foreach ($cats as $catKey => $meta) {
+        $rows = array_values(array_filter($data['adjustments'], fn($r) => $r['category'] === $catKey));
+        if (empty($rows)) { continue; }
+        $out .= "\n" . strtoupper($meta['label']) . " (total MYR " . number_format($data['totals'][$catKey], 2) . "):\n";
+        foreach ($rows as $r) {
+            $out .= sprintf("  • %s  [%s]  MYR %s\n",
+                $r['line_item'],
+                $r['mfrs_reference'] ?: '—',
+                number_format((float) $r['amount'], 2)
+            );
+            if (!empty($r['notes'])) { $out .= "      notes: {$r['notes']}\n"; }
+        }
+    }
+
+    $out .= sprintf("\nDERIVED:\n  Chargeable income:  MYR %s\n  Tax expense:        MYR %s\n  Effective rate:     %s\n  Net payable/(ref):  MYR %s\n",
+        number_format($data['chargeable_income'], 2),
+        number_format($data['tax_expense'], 2),
+        $data['effective_rate'] !== null ? number_format($data['effective_rate'], 2) . '%' : '—',
+        number_format($data['tax_expense'] - (float) $data['comp']['tax_paid'], 2)
+    );
+
+    $out .= "\nReview this Malaysian tax computation per the system prompt: "
+         . "completeness gaps, computation issues, rate review, deferred tax, recommended procedures.";
+
+    return $out;
+}
+
+// ---------------------------------------------------------------------
+// Misstatement review (workplan step 24)
+// ---------------------------------------------------------------------
+function ai_payload_misstatements(?int $engagementId): string
+{
+    if (!$engagementId) { return "No engagement context provided."; }
+    $header = ai_engagement_header($engagementId);
+
+    if (!table_exists('misstatements')) {
+        return $header . "\n\nMisstatement module is not installed (sql/010 not applied).";
+    }
+
+    require_once __DIR__ . '/../includes/misstatements.php';
+    $items   = mis_load($engagementId);
+    $summary = mis_summary($engagementId);
+
+    $out = $header . "\n\nMATERIALITY BENCHMARKS:\n";
+    $out .= "  Performance materiality (PM): "
+         . ($summary['pm']  !== null ? 'MYR ' . number_format($summary['pm'], 2)  : 'NOT SET') . "\n";
+    $out .= "  Clearly trivial threshold (CTT): "
+         . ($summary['ctt'] !== null ? 'MYR ' . number_format($summary['ctt'], 2) : 'NOT SET') . "\n";
+
+    $out .= "\nAGGREGATE IMPACT:\n";
+    $out .= sprintf("  Uncorrected — PBT %s, assets %s, liab %s  (%d items)\n",
+        number_format($summary['uncorrected']['pbt'], 2),
+        number_format($summary['uncorrected']['assets'], 2),
+        number_format($summary['uncorrected']['liabilities'], 2),
+        $summary['uncorrected']['count']);
+    $out .= sprintf("  Corrected   — PBT %s, assets %s, liab %s  (%d items)\n",
+        number_format($summary['corrected']['pbt'], 2),
+        number_format($summary['corrected']['assets'], 2),
+        number_format($summary['corrected']['liabilities'], 2),
+        $summary['corrected']['count']);
+    $out .= "  Breach of PM: " . ($summary['breach_pm']  ? 'YES' : 'no') . "\n";
+    $out .= "  Breach of CTT: " . ($summary['breach_ctt'] ? 'YES' : 'no') . "\n";
+
+    $out .= "\nMISSTATEMENT LIST (" . count($items) . "):\n";
+    if (empty($items)) {
+        $out .= "  (none raised)\n";
+    } else {
+        foreach ($items as $m) {
+            $out .= sprintf("  • [%s/%s] %s\n", $m['status'], $m['category'], $m['description']);
+            $out .= sprintf("      PBT=%s  assets=%s  liab=%s%s%s\n",
+                number_format((float) $m['amount_pbt'], 2),
+                number_format((float) $m['amount_assets'], 2),
+                number_format((float) $m['amount_liabilities'], 2),
+                $m['lead_area'] ? " · lead={$m['lead_area']}" : '',
+                $m['wp_ref'] ? " · wp={$m['wp_ref']}" : ''
+            );
+            if (!empty($m['notes'])) {
+                $out .= "      notes: {$m['notes']}\n";
+            }
+        }
+    }
+
+    $out .= "\nReview the SUM per the system prompt: aggregate vs PM, qualitative "
+         . "considerations (ISA 450), classification reasonableness, recommended "
+         . "disposition, opinion implication. Give a clear bottom line first.";
+
     return $out;
 }

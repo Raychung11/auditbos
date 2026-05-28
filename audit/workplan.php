@@ -292,6 +292,10 @@ require __DIR__ . '/../includes/header.php';
                         // do the work for this lead.
                         $links = workplan_step_links($s['code'], (int) $eid);
                         ?>
+                        <?php
+                        $aiHook = workplan_step_ai($s['code']);
+                        $aiUrl  = $aiHook ? workplan_step_ai_url($s['code'], (int) $eid) : null;
+                        ?>
                         <div class="flex flex-wrap gap-2 items-center">
                             <?php if ($canEdit && !$isLocked && !$isClosed): ?>
                                 <form method="post" class="inline">
@@ -299,9 +303,19 @@ require __DIR__ . '/../includes/header.php';
                                     <input type="hidden" name="_action" value="kickoff">
                                     <input type="hidden" name="step_no" value="<?= (int) $s['step_no'] ?>">
                                     <button class="inline-flex items-center gap-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-2.5 py-1 font-medium">
-                                        <?= $spec ? 'Start step & create WP' : 'Start step' ?> &rarr;
+                                        <?= $spec ? 'Start step &amp; create WP' : 'Start step' ?> &rarr;
                                     </button>
                                 </form>
+                            <?php endif; ?>
+                            <?php if ($aiHook && $aiUrl): ?>
+                                <a href="<?= e($aiUrl) ?>"
+                                   class="inline-flex items-center gap-1 rounded bg-violet-600 hover:bg-violet-700 text-white text-xs px-2.5 py-1 font-medium">
+                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                              d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                                    </svg>
+                                    <?= e($aiHook['label']) ?>
+                                </a>
                             <?php endif; ?>
                             <?php foreach ($links as $lnk): ?>
                                 <a href="<?= e($lnk['href']) ?>"

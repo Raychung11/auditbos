@@ -164,15 +164,26 @@ require __DIR__ . '/../includes/header.php';
         </h2>
         <p class="text-sm text-slate-500"><?= e($engagement['financial_year']) ?></p>
     </div>
-    <?php if ($canEdit && !engagement_locked($engagementId) && (!$data || empty($data['adjustments']))): ?>
-        <form method="post">
-            <?= csrf_field() ?>
-            <input type="hidden" name="_action" value="seed_defaults">
-            <button class="rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm px-3 py-1.5">
-                Seed Malaysian template
-            </button>
-        </form>
-    <?php endif; ?>
+    <div class="flex flex-wrap gap-2">
+        <?php if ($canEdit && !engagement_locked($engagementId) && (!$data || empty($data['adjustments']))): ?>
+            <form method="post">
+                <?= csrf_field() ?>
+                <input type="hidden" name="_action" value="seed_defaults">
+                <button class="rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm px-3 py-1.5">
+                    Seed Malaysian template
+                </button>
+            </form>
+        <?php endif; ?>
+        <?php if (defined('AI_ENABLED') && AI_ENABLED && $data): ?>
+            <a href="/ai/run.php?fn=ai_review_tax_computation&engagement_id=<?= (int) $engagementId ?>"
+               class="inline-flex items-center gap-1 rounded bg-violet-600 hover:bg-violet-700 text-white px-3 py-1.5 text-sm font-medium">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                </svg>
+                AI tax review
+            </a>
+        <?php endif; ?>
+    </div>
 </div>
 
 <!-- Computation header -->

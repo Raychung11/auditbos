@@ -186,6 +186,15 @@ require __DIR__ . '/../includes/header.php';
         </h2>
         <p class="text-sm text-slate-500"><?= e($engagement['financial_year']) ?></p>
     </div>
+    <?php if (defined('AI_ENABLED') && AI_ENABLED): ?>
+        <a href="/ai/run.php?fn=ai_review_related_parties&engagement_id=<?= (int) $engagementId ?>"
+           class="inline-flex items-center gap-1 rounded bg-violet-600 hover:bg-violet-700 text-white px-3 py-1.5 text-sm font-medium">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+            </svg>
+            AI related-party review
+        </a>
+    <?php endif; ?>
 </div>
 
 <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
