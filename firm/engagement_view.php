@@ -13,6 +13,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../includes/auth_guard.php';
 require_role(['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer']);
 require_once __DIR__ . '/../includes/workflow.php';
+require_once __DIR__ . '/../includes/workplan.php';
 
 $pdo    = db();
 $firmId = current_firm_id();
@@ -273,6 +274,12 @@ $reportingHits = (int) ($dataSummary['tb_current'] > 0)                         
                + (int) !empty($eng['locked_at']);                                // locked/archived
 $reportingPct = (int) round(($reportingHits / 4) * 100);
 
+// 27-step audit workplan — auto-seed if missing, auto-sync hook-based steps,
+// then load the summary for the workspace card.
+workplan_seed_engagement($id);
+workplan_sync_status($id);
+$workplanSummary = workplan_summary($id);
+
 // Engagement-scoped activity timeline (last 60 events).
 require_once __DIR__ . '/../includes/timeline.php';
 $timeline = engagement_timeline($id, 60);
@@ -326,6 +333,47 @@ require __DIR__ . '/../includes/header.php';
         <?php endif; ?>
     </div>
 <?php endif; ?>
+
+<!-- 27-step audit workplan SOP -->
+<div class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+        <div>
+            <div class="flex items-center gap-2">
+                <h3 class="font-semibold text-slate-900">Audit workplan</h3>
+                <span class="text-xs uppercase tracking-wide text-slate-400">27-step SOP</span>
+            </div>
+            <p class="text-xs text-slate-500 mt-1">
+                Standard audit programme from Client Acceptance through File Locking.
+                Steps marked <em>auto</em> advance when the underlying feature is done.
+            </p>
+        </div>
+        <a href="/audit/workplan.php?eid=<?= (int) $id ?>"
+           class="inline-flex items-center gap-1 rounded bg-brand-600 hover:bg-brand-700 text-white text-sm px-3 py-1.5">
+            Open workplan &rarr;
+        </a>
+    </div>
+    <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-4">
+        <div class="rounded border border-slate-200 px-3 py-2">
+            <div class="text-xs uppercase tracking-wide text-slate-500">Cleared</div>
+            <div class="text-lg font-semibold text-slate-900">
+                <?= (int) $workplanSummary['cleared'] ?> / <?= (int) $workplanSummary['total'] ?>
+                <span class="text-xs text-slate-500 font-normal">(<?= (int) $workplanSummary['pct'] ?>%)</span>
+            </div>
+        </div>
+        <?php foreach (workplan_phases() as $key => $label):
+            $p = $workplanSummary['by_phase'][$key] ?? ['total'=>0,'cleared'=>0]; ?>
+            <div class="rounded border border-slate-200 px-3 py-2">
+                <div class="text-xs uppercase tracking-wide text-slate-500"><?= e($label) ?></div>
+                <div class="text-lg font-semibold text-slate-900">
+                    <?= (int) $p['cleared'] ?> / <?= (int) $p['total'] ?>
+                </div>
+            </div>
+        <?php endforeach; ?>
+    </div>
+    <div class="h-2 bg-slate-100 rounded-full overflow-hidden mt-4">
+        <div class="h-full bg-emerald-500 transition-all" style="width: <?= (int) $workplanSummary['pct'] ?>%"></div>
+    </div>
+</div>
 
 <!-- Completion rings (data prep / audit work / reporting) -->
 <?php

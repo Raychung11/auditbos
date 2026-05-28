@@ -31,6 +31,8 @@ if (!defined('AUDITBOS_BOOTSTRAPPED')) {
     http_response_code(403); exit('Forbidden');
 }
 
+require_once __DIR__ . '/workplan.php';
+
 /**
  * Engagements eligible as a rollover SOURCE for a given client (in the
  * current firm). Lists most-recent first, excluding ones that are
@@ -212,6 +214,12 @@ function rollover_engagement(int $sourceId, int $firmId, array $newEng, ?int $us
         log_activity('engagement.rollover', 'engagement', $newId,
             sprintf('Rolled over from #%d · %d WPs · %d requests · %d overrides · %d team · materiality:%s',
                 $sourceId, $wpCount, $reqCount, $ovrCount, $teamCount, $matCloned ? 'yes' : 'no'));
+
+        // Seed the 27-step audit workplan for the new engagement. Status
+        // resets to not_started — last year's progress doesn't carry.
+        if (function_exists('workplan_seed_engagement')) {
+            workplan_seed_engagement($newId);
+        }
 
         return $newId;
     } catch (Throwable $ex) {

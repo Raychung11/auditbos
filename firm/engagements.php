@@ -12,6 +12,7 @@ require_once __DIR__ . '/../includes/auth_guard.php';
 require_role(['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer']);
 require_once __DIR__ . '/../includes/workflow.php';
 require_once __DIR__ . '/../includes/rollover.php';
+require_once __DIR__ . '/../includes/workplan.php';
 
 $pdo    = db();
 $firmId = current_firm_id();
@@ -91,7 +92,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
                 $newId = (int) $pdo->lastInsertId();
                 log_activity('engagement.create', 'engagement', $newId);
-                flash('success', 'Engagement created. You can now seed the document checklist.');
+                $seeded = workplan_seed_engagement($newId);
+                if ($seeded > 0) {
+                    log_activity('engagement.workplan_seeded', 'engagement', $newId,
+                        'Seeded ' . $seeded . ' workplan steps');
+                }
+                flash('success', 'Engagement created with the 27-step audit workplan. You can now seed the document checklist.');
                 redirect('/firm/engagement_view.php?id=' . $newId);
             }
         } catch (Throwable $e) {
