@@ -239,6 +239,40 @@ $dataStmt = $pdo->prepare(
 $dataStmt->execute([':e'=>$id, ':e2'=>$id, ':e3'=>$id]);
 $dataSummary = $dataStmt->fetch() ?: ['tb_current'=>0, 'tb_prior'=>0, 'gl_rows'=>0];
 
+// Completion rings — Data Preparation / Audit Work / Reporting.
+$matExists = (int) $pdo->prepare(
+    'SELECT COUNT(*) FROM engagement_materiality WHERE engagement_id = :e'
+)->execute([':e'=>$id]) ? null : null; // executed below
+$stmt = $pdo->prepare('SELECT COUNT(*) FROM engagement_materiality WHERE engagement_id = :e');
+$stmt->execute([':e'=>$id]);
+$matExists = (int) $stmt->fetchColumn() > 0;
+
+$stmt = $pdo->prepare(
+    'SELECT
+       SUM(CASE WHEN output_type = "audit_report"  THEN 1 ELSE 0 END) AS reports,
+       SUM(CASE WHEN output_type = "going_concern" THEN 1 ELSE 0 END) AS gc
+       FROM ai_outputs WHERE engagement_id = :e'
+);
+$stmt->execute([':e'=>$id]);
+$outputCounts = $stmt->fetch() ?: ['reports'=>0, 'gc'=>0];
+
+$dataPrepHits = (int) ($dataSummary['tb_current'] > 0)
+              + (int) ($dataSummary['tb_prior']   > 0)
+              + (int) ($dataSummary['gl_rows']    > 0)
+              + (int) $matExists;
+$dataPrepPct  = (int) round(($dataPrepHits / 4) * 100);
+
+$wpTotal = count($workingPapers);
+$wpDone  = count(array_filter($workingPapers,
+    static fn($w) => in_array($w['status'], ['cleared','completed'], true)));
+$auditPct = $wpTotal > 0 ? (int) round(($wpDone / $wpTotal) * 100) : 0;
+
+$reportingHits = (int) ($dataSummary['tb_current'] > 0)                         // FS computable
+               + (int) ((int) $outputCounts['reports'] > 0)                      // auditor's report drafted
+               + (int) (($eng['review_stage'] ?? '') === 'signed_off')           // signed off
+               + (int) !empty($eng['locked_at']);                                // locked/archived
+$reportingPct = (int) round(($reportingHits / 4) * 100);
+
 // Engagement-scoped activity timeline (last 60 events).
 require_once __DIR__ . '/../includes/timeline.php';
 $timeline = engagement_timeline($id, 60);
@@ -293,6 +327,58 @@ require __DIR__ . '/../includes/header.php';
     </div>
 <?php endif; ?>
 
+<!-- Completion rings (data prep / audit work / reporting) -->
+<?php
+$ringHtml = static function (int $pct, string $label, string $colour): string {
+    $r = 36; $c = 2 * M_PI * $r; $dash = $c - ($pct / 100) * $c;
+    ob_start(); ?>
+    <div class="flex items-center gap-3">
+        <svg viewBox="0 0 88 88" class="w-20 h-20 -rotate-90 shrink-0">
+            <circle cx="44" cy="44" r="<?= $r ?>" fill="none" stroke="#e2e8f0" stroke-width="8"></circle>
+            <circle cx="44" cy="44" r="<?= $r ?>" fill="none" stroke="<?= $colour ?>" stroke-width="8"
+                    stroke-dasharray="<?= number_format($c, 3) ?>"
+                    stroke-dashoffset="<?= number_format($dash, 3) ?>"
+                    stroke-linecap="round" style="transition: stroke-dashoffset .6s ease-out"></circle>
+            <text x="44" y="44" text-anchor="middle" dominant-baseline="central"
+                  transform="rotate(90 44 44)" font-size="18" font-weight="700" fill="#0f172a"><?= $pct ?>%</text>
+        </svg>
+        <div>
+            <div class="text-sm font-semibold text-slate-900"><?= e($label) ?></div>
+        </div>
+    </div>
+    <?php return (string) ob_get_clean();
+};
+?>
+<div class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
+    <h3 class="font-semibold text-slate-900 mb-4">Engagement completion</h3>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div>
+            <?= $ringHtml($dataPrepPct, 'Data Preparation', '#10b981') ?>
+            <div class="text-xs text-slate-500 mt-2">
+                TB curr <?= (int)($dataSummary['tb_current'] > 0) ?>/1 ·
+                TB prior <?= (int)($dataSummary['tb_prior']   > 0) ?>/1 ·
+                GL <?= (int)($dataSummary['gl_rows']        > 0) ?>/1 ·
+                Materiality <?= $matExists ? 1 : 0 ?>/1
+            </div>
+        </div>
+        <div>
+            <?= $ringHtml($auditPct, 'Audit Work', '#4f46e5') ?>
+            <div class="text-xs text-slate-500 mt-2">
+                Working papers cleared/completed: <?= $wpDone ?>/<?= $wpTotal ?>
+            </div>
+        </div>
+        <div>
+            <?= $ringHtml($reportingPct, 'Reporting & Sign-off', '#f59e0b') ?>
+            <div class="text-xs text-slate-500 mt-2">
+                FS <?= (int)($dataSummary['tb_current'] > 0) ?>/1 ·
+                Report <?= (int)((int)$outputCounts['reports'] > 0) ?>/1 ·
+                Signed off <?= (int)(($eng['review_stage'] ?? '') === 'signed_off') ?>/1 ·
+                Locked <?= !empty($eng['locked_at']) ? 1 : 0 ?>/1
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Header card -->
 <div class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
     <div class="flex flex-wrap items-start justify-between gap-4">
@@ -305,6 +391,16 @@ require __DIR__ . '/../includes/header.php';
                 <?= e($eng['financial_year']) ?>
                 · <?= e(ucfirst($eng['engagement_type'])) ?>
                 <?= $eng['engagement_code'] ? ' · ' . e($eng['engagement_code']) : '' ?>
+                <?php if (!empty($eng['rolled_over_from_id'])):
+                    $src = $pdo->prepare('SELECT financial_year FROM engagements WHERE id = :id');
+                    $src->execute([':id' => (int) $eng['rolled_over_from_id']]);
+                    $srcFy = $src->fetchColumn();
+                ?>
+                    · <a href="/firm/engagement_view.php?id=<?= (int) $eng['rolled_over_from_id'] ?>"
+                         class="text-brand-600 hover:underline">
+                        Rolled over from <?= e($srcFy ?: '#' . (int) $eng['rolled_over_from_id']) ?>
+                      </a>
+                <?php endif; ?>
             </p>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 text-sm">
                 <div>
@@ -327,8 +423,14 @@ require __DIR__ . '/../includes/header.php';
         </div>
         <div class="flex flex-col gap-2 items-end">
             <?php if ($canEdit): ?>
-                <a href="/firm/engagements.php?action=edit&id=<?= (int) $eng['id'] ?>"
-                   class="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">Edit</a>
+                <div class="flex gap-2">
+                    <a href="/firm/engagements.php?action=rollover&source_id=<?= (int) $eng['id'] ?>"
+                       class="rounded border border-emerald-300 text-emerald-700 hover:bg-emerald-50 px-3 py-1.5 text-sm">
+                        Roll over to next year
+                    </a>
+                    <a href="/firm/engagements.php?action=edit&id=<?= (int) $eng['id'] ?>"
+                       class="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">Edit</a>
+                </div>
                 <form method="post" class="flex items-center gap-2">
                     <?= csrf_field() ?>
                     <input type="hidden" name="_action" value="update_eng_status">

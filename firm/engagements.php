@@ -11,6 +11,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../includes/auth_guard.php';
 require_role(['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer']);
 require_once __DIR__ . '/../includes/workflow.php';
+require_once __DIR__ . '/../includes/rollover.php';
 
 $pdo    = db();
 $firmId = current_firm_id();
@@ -102,6 +103,116 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // ---------------------------------------------------------------------
+// POST: roll over a prior-year engagement into a new one.
+// ---------------------------------------------------------------------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['_action'] ?? '') === 'rollover') {
+    csrf_check();
+    if (!$canEdit) { http_response_code(403); exit('Forbidden'); }
+    $sourceId = (int)($_POST['source_id'] ?? 0);
+    try {
+        $newId = rollover_engagement($sourceId, $firmId, [
+            'financial_year'  => $_POST['financial_year']  ?? '',
+            'period_start'    => $_POST['period_start']    ?? '',
+            'period_end'      => $_POST['period_end']      ?? '',
+            'deadline'        => $_POST['deadline']        ?? '',
+            'engagement_code' => $_POST['engagement_code'] ?? '',
+        ], current_user_id());
+        flash('success', 'Engagement rolled over. Update the financial period and import the new TB to continue.');
+        redirect('/firm/engagement_view.php?id=' . $newId);
+    } catch (Throwable $ex) {
+        flash('error', 'Rollover failed: ' . $ex->getMessage());
+        redirect('/firm/engagements.php?action=rollover&source_id=' . $sourceId);
+    }
+}
+
+// ---------------------------------------------------------------------
+// Rollover form: pick the new FY + dates for a chosen source engagement.
+// ---------------------------------------------------------------------
+if ($mode === 'rollover') {
+    $sourceId = isset($_GET['source_id']) ? (int) $_GET['source_id'] : 0;
+    $src = $pdo->prepare(
+        'SELECT e.*, c.company_name FROM engagements e
+           JOIN clients c ON c.id = e.client_id
+          WHERE e.id = :id AND e.firm_id = :fid'
+    );
+    $src->execute([':id'=>$sourceId, ':fid'=>$firmId]);
+    $source = $src->fetch();
+    if (!$source) {
+        flash('error', 'Source engagement not found.');
+        redirect('/firm/engagements.php');
+    }
+
+    // Suggested defaults: next FY, +12 months on the period dates.
+    $suggestedFy   = preg_match('/FY(\d{4})/i', $source['financial_year'], $m)
+        ? 'FY' . ((int) $m[1] + 1) : $source['financial_year'];
+    $shiftDate = static fn(?string $d) => $d
+        ? date('Y-m-d', strtotime($d . ' +1 year'))
+        : '';
+    $suggestedStart = $shiftDate($source['period_start']);
+    $suggestedEnd   = $shiftDate($source['period_end']);
+    $suggestedDl    = $shiftDate($source['deadline']);
+
+    $pageTitle = 'Roll over engagement';
+    require __DIR__ . '/../includes/header.php';
+    ?>
+    <a href="/firm/engagement_view.php?id=<?= (int) $source['id'] ?>"
+       class="text-sm text-brand-600 hover:underline">&larr; Back</a>
+    <h2 class="text-xl font-semibold text-slate-900 mt-1 mb-1">Roll over engagement</h2>
+    <p class="text-sm text-slate-500 mb-4">
+        Cloning structure from <strong><?= e($source['company_name']) ?></strong> ·
+        <?= e($source['financial_year']) ?>. The new engagement will copy working papers
+        (status reset), document requests, lead-schedule overrides, materiality basis,
+        and the engagement team. Trial balance, GL, documents, review notes and AI
+        outputs are <strong>not</strong> copied — those start fresh.
+    </p>
+
+    <form method="post" class="bg-white rounded-lg border border-slate-200 p-6 space-y-4 max-w-3xl">
+        <?= csrf_field() ?>
+        <input type="hidden" name="_action" value="rollover">
+        <input type="hidden" name="source_id" value="<?= (int) $source['id'] ?>">
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <label class="block">
+                <span class="text-sm font-medium text-slate-700">New financial year *</span>
+                <input name="financial_year" required value="<?= e($suggestedFy) ?>"
+                       class="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm">
+            </label>
+            <label class="block">
+                <span class="text-sm font-medium text-slate-700">Engagement code</span>
+                <input name="engagement_code"
+                       class="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm">
+            </label>
+            <label class="block">
+                <span class="text-sm font-medium text-slate-700">Period start</span>
+                <input type="date" name="period_start" value="<?= e($suggestedStart) ?>"
+                       class="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm">
+            </label>
+            <label class="block">
+                <span class="text-sm font-medium text-slate-700">Period end</span>
+                <input type="date" name="period_end" value="<?= e($suggestedEnd) ?>"
+                       class="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm">
+            </label>
+            <label class="block">
+                <span class="text-sm font-medium text-slate-700">Deadline</span>
+                <input type="date" name="deadline" value="<?= e($suggestedDl) ?>"
+                       class="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm">
+            </label>
+        </div>
+
+        <div class="flex gap-3 pt-2">
+            <button class="rounded bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 text-sm font-medium">
+                Create new engagement &amp; clone
+            </button>
+            <a href="/firm/engagement_view.php?id=<?= (int) $source['id'] ?>"
+               class="rounded border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50">Cancel</a>
+        </div>
+    </form>
+    <?php
+    require __DIR__ . '/../includes/footer.php';
+    exit;
+}
+
+// ---------------------------------------------------------------------
 // Load record for edit
 // ---------------------------------------------------------------------
 $record = null;
@@ -129,11 +240,20 @@ if (in_array($mode, ['new','edit'], true)) {
     $staffList = $stmt->fetchAll();
 }
 
-// List view with optional status filter
-$filterStatus = $_GET['status'] ?? null;
+// List view with filters: status, year-end month (MM), industry,
+// partner, manager, client text search.
+$filterStatus    = $_GET['status']    ?? null;
+$filterFyeMonth  = $_GET['fye_month'] ?? '';
+$filterIndustry  = trim((string)($_GET['industry'] ?? ''));
+$filterPartner   = isset($_GET['partner_id']) ? (int) $_GET['partner_id'] : 0;
+$filterManager   = isset($_GET['manager_id']) ? (int) $_GET['manager_id'] : 0;
+$filterSearch    = trim((string)($_GET['q'] ?? ''));
+
 $engagements  = [];
+$filterFacets = ['industries' => [], 'staff' => []];
+
 if ($mode === 'list') {
-    $sql = 'SELECT e.*, c.company_name,
+    $sql = 'SELECT e.*, c.company_name, c.industry, c.financial_year_end,
                    pu.name AS partner_name, mu.name AS manager_name
               FROM engagements e
               JOIN clients c   ON c.id = e.client_id
@@ -141,14 +261,50 @@ if ($mode === 'list') {
               LEFT JOIN users mu ON mu.id = e.manager_id
              WHERE e.firm_id = :fid';
     $params = [':fid' => $firmId];
+
     if ($filterStatus && in_array($filterStatus, $statuses, true)) {
-        $sql .= ' AND e.status = :s';
-        $params[':s'] = $filterStatus;
+        $sql .= ' AND e.status = :s'; $params[':s'] = $filterStatus;
     }
-    $sql .= ' ORDER BY e.updated_at DESC';
+    if ($filterFyeMonth !== '' && preg_match('/^(0[1-9]|1[0-2])$/', $filterFyeMonth)) {
+        // financial_year_end is stored "MM-DD"
+        $sql .= ' AND c.financial_year_end LIKE :fye';
+        $params[':fye'] = $filterFyeMonth . '-%';
+    }
+    if ($filterIndustry !== '') {
+        $sql .= ' AND c.industry = :ind'; $params[':ind'] = $filterIndustry;
+    }
+    if ($filterPartner > 0) {
+        $sql .= ' AND e.partner_id = :pid'; $params[':pid'] = $filterPartner;
+    }
+    if ($filterManager > 0) {
+        $sql .= ' AND e.manager_id = :mid'; $params[':mid'] = $filterManager;
+    }
+    if ($filterSearch !== '') {
+        $sql .= ' AND (c.company_name LIKE :q1 OR e.engagement_code LIKE :q2 OR e.financial_year LIKE :q3)';
+        $like = '%' . $filterSearch . '%';
+        $params[':q1'] = $like; $params[':q2'] = $like; $params[':q3'] = $like;
+    }
+    $sql .= ' ORDER BY e.updated_at DESC LIMIT 200';
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
     $engagements = $stmt->fetchAll();
+
+    // Filter facets — distinct industries and active firm staff (for the dropdowns).
+    $facets = $pdo->prepare(
+        'SELECT DISTINCT c.industry FROM clients c
+          WHERE c.firm_id = :f AND c.industry IS NOT NULL AND c.industry <> ""
+          ORDER BY c.industry'
+    );
+    $facets->execute([':f' => $firmId]);
+    $filterFacets['industries'] = array_filter(array_column($facets->fetchAll(), 'industry'));
+
+    $staff = $pdo->prepare(
+        "SELECT id, name, role FROM users
+          WHERE firm_id = :f AND status = 'active' AND role <> 'client_user'
+          ORDER BY name"
+    );
+    $staff->execute([':f' => $firmId]);
+    $filterFacets['staff'] = $staff->fetchAll();
 }
 
 $pageTitle = 'Engagements';
@@ -277,15 +433,7 @@ require __DIR__ . '/../includes/header.php';
 
 <?php else: ?>
     <div class="flex items-center justify-between mb-4">
-        <div>
-            <p class="text-sm text-slate-600">All audit engagements for your firm.</p>
-            <?php if ($filterStatus): ?>
-                <p class="text-xs text-slate-500 mt-1">
-                    Filter: <?= badge($filterStatus) ?>
-                    <a href="/firm/engagements.php" class="ml-2 text-brand-600 hover:underline">clear</a>
-                </p>
-            <?php endif; ?>
-        </div>
+        <p class="text-sm text-slate-600">All audit engagements for your firm. <?= count($engagements) ?> result(s).</p>
         <?php if ($canEdit): ?>
             <a href="/firm/engagements.php?action=new"
                class="rounded bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 text-sm font-medium">
@@ -293,6 +441,79 @@ require __DIR__ . '/../includes/header.php';
             </a>
         <?php endif; ?>
     </div>
+
+    <!-- Filter bar -->
+    <form method="get" class="bg-white rounded-lg border border-slate-200 p-4 mb-4 grid grid-cols-1 md:grid-cols-6 gap-3 text-sm">
+        <label class="block md:col-span-2">
+            <span class="text-xs font-medium text-slate-700">Search</span>
+            <input name="q" value="<?= e($filterSearch) ?>" placeholder="Client / code / FY"
+                   class="mt-1 w-full rounded border border-slate-300 px-2 py-1.5">
+        </label>
+        <label class="block">
+            <span class="text-xs font-medium text-slate-700">Status</span>
+            <select name="status" class="mt-1 w-full rounded border border-slate-300 px-2 py-1.5">
+                <option value="">All</option>
+                <?php foreach ($statuses as $st): ?>
+                    <option value="<?= $st ?>" <?= $filterStatus === $st ? 'selected' : '' ?>>
+                        <?= ucwords(str_replace('_',' ',$st)) ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <label class="block">
+            <span class="text-xs font-medium text-slate-700">Year end (month)</span>
+            <select name="fye_month" class="mt-1 w-full rounded border border-slate-300 px-2 py-1.5">
+                <option value="">Any</option>
+                <?php
+                $monthNames = [1=>'Jan',2=>'Feb',3=>'Mar',4=>'Apr',5=>'May',6=>'Jun',
+                               7=>'Jul',8=>'Aug',9=>'Sep',10=>'Oct',11=>'Nov',12=>'Dec'];
+                for ($m = 1; $m <= 12; $m++):
+                    $mm = sprintf('%02d', $m);
+                ?>
+                    <option value="<?= $mm ?>" <?= $filterFyeMonth === $mm ? 'selected' : '' ?>>
+                        <?= $monthNames[$m] ?> (<?= $mm ?>)
+                    </option>
+                <?php endfor; ?>
+            </select>
+        </label>
+        <label class="block">
+            <span class="text-xs font-medium text-slate-700">Industry</span>
+            <select name="industry" class="mt-1 w-full rounded border border-slate-300 px-2 py-1.5">
+                <option value="">Any</option>
+                <?php foreach ($filterFacets['industries'] as $ind): ?>
+                    <option value="<?= e($ind) ?>" <?= $filterIndustry === $ind ? 'selected' : '' ?>>
+                        <?= e($ind) ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <label class="block">
+            <span class="text-xs font-medium text-slate-700">Partner</span>
+            <select name="partner_id" class="mt-1 w-full rounded border border-slate-300 px-2 py-1.5">
+                <option value="0">Any</option>
+                <?php foreach ($filterFacets['staff'] as $u): ?>
+                    <option value="<?= (int) $u['id'] ?>" <?= $filterPartner === (int) $u['id'] ? 'selected' : '' ?>>
+                        <?= e($u['name']) ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <label class="block">
+            <span class="text-xs font-medium text-slate-700">Manager</span>
+            <select name="manager_id" class="mt-1 w-full rounded border border-slate-300 px-2 py-1.5">
+                <option value="0">Any</option>
+                <?php foreach ($filterFacets['staff'] as $u): ?>
+                    <option value="<?= (int) $u['id'] ?>" <?= $filterManager === (int) $u['id'] ? 'selected' : '' ?>>
+                        <?= e($u['name']) ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <div class="md:col-span-6 flex items-end gap-2">
+            <button class="rounded bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 text-sm">Apply</button>
+            <a href="/firm/engagements.php" class="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">Reset</a>
+        </div>
+    </form>
 
     <div class="bg-white rounded-lg border border-slate-200 overflow-hidden">
         <?php if (empty($engagements)): ?>

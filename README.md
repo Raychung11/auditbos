@@ -558,6 +558,7 @@ document root at the project root.
 | `sql/005_reminders.sql` | `reminders` log table |
 | `sql/006_materiality.sql` | `engagement_materiality` table |
 | `sql/007_aging.sql` | `aging_items` table (debtor / creditor aging) |
+| `sql/008_rollover.sql` | adds `rolled_over_from_id` to `engagements` |
 
 Run them in order. They're idempotent on `CREATE TABLE IF NOT EXISTS` for the new tables
 but the `ALTER TABLE` statements in `002` will fail if run twice — wrap in your own
@@ -636,6 +637,7 @@ find . -name "*.php" -not -path "./.git/*" -print0 | xargs -0 -n1 php -l | grep 
 - ✅ Materiality calculator + going-concern ratios (current vs prior)
 - ✅ Debtor / creditor aging analysis (import listing, bucket exposure, ECL focus, AI review)
 - ✅ Independent auditor's report draft generator (4 opinion types, ISA 700 / Companies Act 2016 structure)
+- ✅ Year-end rollover (clone WPs, requests, lead overrides, materiality basis, team) + filtered engagement list + per-engagement completion rings
 - ✅ Financial statement export (SOFP + SOCI)
 - ✅ AI assistant (8 functions + document classifier)
 - ✅ Staff KPI module + partner dashboard
