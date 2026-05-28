@@ -8,6 +8,7 @@
 
 declare(strict_types=1);
 require_once __DIR__ . '/../includes/auth_guard.php';
+require_once __DIR__ . '/../includes/workplan.php';
 require_role(['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer']);
 require_once __DIR__ . '/../includes/analytical.php';
 require_once __DIR__ . '/../includes/workflow.php';
@@ -148,6 +149,11 @@ $fmtRatio = static function (?float $v, string $unit): string {
 <a href="/audit/analytical_review.php" class="text-sm text-brand-600 hover:underline">&larr; Change engagement</a>
 <a href="/firm/engagement_view.php?id=<?= (int) $engagementId ?>"
    class="ml-3 text-sm text-brand-600 hover:underline">Engagement workspace</a>
+
+<div class="mt-3">
+<?php echo workplan_breadcrumb_html((int) $engagementId,
+    workplan_step_for_context('module', 'materiality', (int) $engagementId)); ?>
+</div>
 
 <div class="flex flex-wrap items-end justify-between gap-3 mt-1 mb-5">
     <div>

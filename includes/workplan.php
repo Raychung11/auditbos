@@ -672,6 +672,292 @@ function workplan_step_links(string $code, int $engagementId): array
 }
 
 /**
+ * Map a workplan step code → the audit area & section it produces a WP in.
+ * Used by the "Start step" reverse hook to pre-create the right WP.
+ *
+ * @return array{lead_area:string, section_code:?string, reference:string,
+ *               risk:string}|null
+ */
+function workplan_step_to_wp_spec(string $code): ?array
+{
+    static $map = [
+        'cash_bank'       => ['lead_area'=>'cash',        'section_code'=>'B-100', 'reference'=>'B-100', 'risk'=>'medium'],
+        'trade_recv'      => ['lead_area'=>'receivables', 'section_code'=>'B-200', 'reference'=>'B-210', 'risk'=>'high'],
+        'other_recv'      => ['lead_area'=>'receivables', 'section_code'=>'B-200', 'reference'=>'B-220', 'risk'=>'medium'],
+        'inventory'       => ['lead_area'=>'inventory',   'section_code'=>'B-400', 'reference'=>'B-400', 'risk'=>'high'],
+        'ppe'             => ['lead_area'=>'ppe',         'section_code'=>'B-500', 'reference'=>'B-500', 'risk'=>'medium'],
+        'finance_lease'   => ['lead_area'=>'borrowings',  'section_code'=>null,    'reference'=>'C-110', 'risk'=>'medium'],
+        'lease_liability' => ['lead_area'=>'borrowings',  'section_code'=>null,    'reference'=>'C-120', 'risk'=>'high'],
+        'borrowings'      => ['lead_area'=>'borrowings',  'section_code'=>null,    'reference'=>'C-100', 'risk'=>'medium'],
+        'trade_pay'       => ['lead_area'=>'payables',    'section_code'=>'B-300', 'reference'=>'B-310', 'risk'=>'high'],
+        'other_pay'       => ['lead_area'=>'payables',    'section_code'=>'B-300', 'reference'=>'B-320', 'risk'=>'medium'],
+        'provision'       => ['lead_area'=>'payables',    'section_code'=>'B-300', 'reference'=>'B-330', 'risk'=>'medium'],
+        'revenue'         => ['lead_area'=>'revenue',     'section_code'=>'B-200', 'reference'=>'P-100', 'risk'=>'high'],
+        'cost_sales'      => ['lead_area'=>'cost_sales',  'section_code'=>'B-300', 'reference'=>'P-200', 'risk'=>'medium'],
+        'expenses'        => ['lead_area'=>'opex',        'section_code'=>null,    'reference'=>'P-300', 'risk'=>'medium'],
+        'payroll'         => ['lead_area'=>'payroll',     'section_code'=>'B-600', 'reference'=>'P-400', 'risk'=>'medium'],
+        'related_party'   => ['lead_area'=>'other',       'section_code'=>null,    'reference'=>'Z-100', 'risk'=>'high'],
+        'tax'             => ['lead_area'=>'tax',         'section_code'=>'B-700', 'reference'=>'B-700', 'risk'=>'medium'],
+        'misstatement_sum'=> ['lead_area'=>'other',       'section_code'=>null,    'reference'=>'Z-200', 'risk'=>'high'],
+        'completion'      => ['lead_area'=>'other',       'section_code'=>null,    'reference'=>'A-900', 'risk'=>'medium'],
+    ];
+    return $map[$code] ?? null;
+}
+
+/**
+ * Kick off a step: set status to in_progress and, for lead steps, create
+ * the matching working paper if one doesn't already exist for that area.
+ * Idempotent — re-running on a step that's already in progress is fine.
+ *
+ * Returns a suggested redirect path so the caller can land staff in the
+ * right module after the kick-off, or null if the workplan view itself
+ * is the right destination.
+ */
+function workplan_kickoff_step(int $engagementId, int $stepNo, ?int $userId): ?string
+{
+    if (!table_exists('engagement_workplan')) {
+        return null;
+    }
+    $pdo = db();
+
+    // Load the step.
+    $s = $pdo->prepare(
+        'SELECT * FROM engagement_workplan WHERE engagement_id = :e AND step_no = :n'
+    );
+    $s->execute([':e' => $engagementId, ':n' => $stepNo]);
+    $step = $s->fetch();
+    if (!$step) {
+        return null;
+    }
+
+    // Move status forward (no-op if already past in_progress).
+    if (in_array($step['status'], ['not_started'], true)) {
+        $pdo->prepare(
+            'UPDATE engagement_workplan
+                SET status = "in_progress", started_at = COALESCE(started_at, NOW())
+              WHERE engagement_id = :e AND step_no = :n'
+        )->execute([':e' => $engagementId, ':n' => $stepNo]);
+    }
+
+    // Reverse-hook destinations for steps that aren't lead-area WPs.
+    $directRoute = [
+        'tb_import'         => '/import/trial_balance.php?engagement_id=' . $engagementId,
+        'documents_intake'  => '/firm/doc_requests.php?engagement_id=' . $engagementId,
+        'materiality'       => '/audit/analytical_review.php?engagement_id=' . $engagementId,
+        'subsequent_events' => '/ai/run.php?fn=ai_detect_variance&engagement_id=' . $engagementId,
+        'going_concern'     => '/audit/analytical_review.php?engagement_id=' . $engagementId,
+        'audit_report'      => '/reports/audit_report.php?engagement_id=' . $engagementId,
+        'file_locking'      => '/firm/engagement_view.php?id=' . $engagementId . '#workflow',
+        'client_acceptance' => '/firm/engagements.php?action=edit&id=' . $engagementId,
+    ];
+    if (isset($directRoute[$step['code']])) {
+        return $directRoute[$step['code']];
+    }
+
+    // Lead-area steps: ensure a WP exists for this lead area, create one
+    // pre-filled with the step's procedures so the auditor has a starting
+    // point. Reference codes follow audit-firm conventions (B-, P-, etc.).
+    $spec = workplan_step_to_wp_spec($step['code']);
+    if ($spec === null) {
+        return null;
+    }
+
+    $check = $pdo->prepare(
+        'SELECT id FROM audit_working_papers
+          WHERE engagement_id = :e AND lead_area = :la
+          ORDER BY id LIMIT 1'
+    );
+    $check->execute([':e' => $engagementId, ':la' => $spec['lead_area']]);
+    $existing = (int) ($check->fetchColumn() ?: 0);
+
+    if ($existing > 0) {
+        return '/audit/working_paper_view.php?id=' . $existing;
+    }
+
+    // Resolve section_id (firm-level overrides not common for default codes
+    // — global rows have firm_id IS NULL).
+    $sectionId = null;
+    if (!empty($spec['section_code'])) {
+        $sec = $pdo->prepare(
+            'SELECT id FROM audit_sections WHERE code = :c
+              ORDER BY firm_id IS NULL, firm_id LIMIT 1'
+        );
+        $sec->execute([':c' => $spec['section_code']]);
+        $sectionId = (int) ($sec->fetchColumn() ?: 0) ?: null;
+    }
+
+    $ins = $pdo->prepare(
+        'INSERT INTO audit_working_papers
+            (engagement_id, section_id, lead_area, reference_code, title,
+             `procedure`, status, risk_rating, prepared_by)
+         VALUES (:e, :s, :la, :rc, :t, :p, "not_started", :r, :u)'
+    );
+    $ins->execute([
+        ':e'  => $engagementId,
+        ':s'  => $sectionId,
+        ':la' => $spec['lead_area'],
+        ':rc' => $spec['reference'],
+        ':t'  => $step['title'],
+        ':p'  => $step['procedures_md'],
+        ':r'  => $spec['risk'],
+        ':u'  => $userId,
+    ]);
+    $newId = (int) $pdo->lastInsertId();
+    log_activity('workplan.kickoff', 'engagement', $engagementId,
+        sprintf('Step %d (%s) → created WP #%d', $stepNo, $step['code'], $newId));
+    return '/audit/working_paper_view.php?id=' . $newId;
+}
+
+/**
+ * Find the workplan step that owns a given context. Used by the
+ * "Part of SOP step N" breadcrumb across the existing module pages so
+ * staff always know where they are in the audit programme.
+ *
+ * Resolution rules:
+ *   ('wp_lead_area', 'cash', $eid)   → step 5 (Cash & Bank)
+ *   ('module', 'materiality', $eid)  → step 4
+ *   ('module', 'audit_report', $eid) → step 26
+ *
+ * @return array{step_no:int, title:string, status:string}|null
+ */
+function workplan_step_for_context(string $contextKey, string $contextValue, int $engagementId): ?array
+{
+    if (!table_exists('engagement_workplan')) {
+        return null;
+    }
+
+    if ($contextKey === 'wp_lead_area') {
+        // The first step matching this lead area is the canonical owner.
+        // (For receivables we have step 6 + 7 — step 6 / Trade is the lead.)
+        static $leadToStep = [
+            'cash'        => 5,
+            'receivables' => 6,
+            'inventory'   => 8,
+            'ppe'         => 9,
+            'borrowings'  => 12,
+            'payables'    => 13,
+            'tax'         => 21,
+            'revenue'     => 16,
+            'cost_sales'  => 17,
+            'opex'        => 18,
+            'payroll'     => 19,
+        ];
+        $stepNo = $leadToStep[$contextValue] ?? null;
+        if ($stepNo === null) {
+            return null;
+        }
+    } elseif ($contextKey === 'module') {
+        static $moduleToStep = [
+            'tb_import'        => 2,
+            'documents'        => 3,
+            'materiality'      => 4,
+            'going_concern'    => 23,
+            'aging_debtor'     => 6,
+            'aging_creditor'   => 13,
+            'audit_report'     => 26,
+            'completion'       => 25,
+            'gl_analytics'     => 5,
+            'subsequent'       => 22,
+        ];
+        $stepNo = $moduleToStep[$contextValue] ?? null;
+        if ($stepNo === null) {
+            return null;
+        }
+    } else {
+        return null;
+    }
+
+    $st = db()->prepare(
+        'SELECT step_no, title, status FROM engagement_workplan
+          WHERE engagement_id = :e AND step_no = :n'
+    );
+    $st->execute([':e' => $engagementId, ':n' => $stepNo]);
+    $row = $st->fetch();
+    return $row ?: null;
+}
+
+/**
+ * Render the SOP breadcrumb banner. Call from any module page that
+ * resolves a context → step via workplan_step_for_context().
+ */
+function workplan_breadcrumb_html(int $engagementId, ?array $step): string
+{
+    if (!$step) {
+        return '';
+    }
+    return '<div class="mb-4 flex items-center justify-between gap-3 rounded-lg border border-brand-100 bg-brand-50 px-4 py-2 text-sm">
+        <div class="flex items-center gap-2 text-brand-900">
+            <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-brand-600 text-white text-xs font-semibold">'
+            . (int) $step['step_no'] . '</span>
+            <span><strong>SOP Step ' . (int) $step['step_no'] . ':</strong> ' . e($step['title']) . '</span>
+            ' . workplan_status_badge($step['status']) . '
+        </div>
+        <a href="/audit/workplan.php?eid=' . (int) $engagementId . '"
+           class="text-xs text-brand-700 hover:underline">View workplan &rarr;</a>
+    </div>';
+}
+
+/**
+ * Count linked working papers (total + cleared) per lead area for an
+ * engagement. Used to enrich the workplan view with "X WPs · Y cleared".
+ *
+ * @return array<string, array{total:int, cleared:int}>
+ */
+function workplan_wp_counts(int $engagementId): array
+{
+    $counts = [];
+    if (!table_exists('audit_working_papers')) {
+        return $counts;
+    }
+    $s = db()->prepare(
+        'SELECT lead_area,
+                COUNT(*) AS total,
+                SUM(CASE WHEN status IN ("cleared","completed") THEN 1 ELSE 0 END) AS cleared
+           FROM audit_working_papers
+          WHERE engagement_id = :e AND lead_area IS NOT NULL
+          GROUP BY lead_area'
+    );
+    $s->execute([':e' => $engagementId]);
+    foreach ($s->fetchAll() as $r) {
+        $counts[$r['lead_area']] = [
+            'total'   => (int) $r['total'],
+            'cleared' => (int) $r['cleared'],
+        ];
+    }
+    return $counts;
+}
+
+/**
+ * Count linked AI runs per step (output_type) for an engagement.
+ * Returns map keyed by output_type → ['runs'=>int, 'accepted'=>int].
+ *
+ * @return array<string, array{runs:int, accepted:int}>
+ */
+function workplan_ai_counts(int $engagementId): array
+{
+    $counts = [];
+    if (!table_exists('ai_outputs')) {
+        return $counts;
+    }
+    $s = db()->prepare(
+        'SELECT output_type,
+                COUNT(*) AS runs,
+                SUM(CASE WHEN status IN ("accepted","published") THEN 1 ELSE 0 END) AS accepted
+           FROM ai_outputs
+          WHERE engagement_id = :e
+          GROUP BY output_type'
+    );
+    $s->execute([':e' => $engagementId]);
+    foreach ($s->fetchAll() as $r) {
+        $counts[$r['output_type']] = [
+            'runs'     => (int) $r['runs'],
+            'accepted' => (int) $r['accepted'],
+        ];
+    }
+    return $counts;
+}
+
+/**
  * Return the firm's audit staff suitable for owner / reviewer dropdowns.
  *
  * @return array<int, array{id:int, name:string, role:string}>

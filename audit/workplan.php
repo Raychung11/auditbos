@@ -105,6 +105,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         flash('success', $n > 0
             ? "Workplan seeded ({$n} new steps)."
             : 'Workplan already complete (all 27 steps present).');
+    } elseif ($action === 'kickoff') {
+        // Reverse hook: start the step + land in the right module
+        // (creates a WP for lead-area steps if one doesn't yet exist).
+        $route = workplan_kickoff_step($eid, $stepNo, current_user_id());
+        if ($route) {
+            flash('success', 'Step started — opening the matching module.');
+            redirect($route);
+        }
+        flash('success', 'Step started.');
     }
     redirect('/audit/workplan.php?eid=' . $eid);
 }
@@ -112,11 +121,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // Auto-sync hook-based steps before render.
 workplan_sync_status($eid);
 
-$steps   = workplan_load($eid);
-$summary = workplan_summary($eid);
-$staff   = workplan_staff($firmId);
-$phases  = workplan_phases();
-$statuses = workplan_statuses();
+$steps     = workplan_load($eid);
+$summary   = workplan_summary($eid);
+$staff     = workplan_staff($firmId);
+$phases    = workplan_phases();
+$statuses  = workplan_statuses();
+$wpCounts  = workplan_wp_counts($eid);
+$aiCounts  = workplan_ai_counts($eid);
 
 // Group steps by phase for the rendered sections.
 $byPhase = array_fill_keys(array_keys($phases), []);
@@ -207,6 +218,18 @@ require __DIR__ . '/../includes/header.php';
                 $isClosed = in_array($s['status'], ['cleared','not_applicable'], true);
                 $hasHook  = !empty($s['automation_hook']);
                 $isLocked = engagement_locked($eid);
+                $spec     = workplan_step_to_wp_spec($s['code']);
+                $wpStat   = $spec ? ($wpCounts[$spec['lead_area']] ?? null) : null;
+                // AI runs linked to this step (matched by output_type via the
+                // hook map — only a few step codes have a direct AI output).
+                static $aiKeyByCode = [
+                    'subsequent_events' => 'variance_detect',
+                    'going_concern'     => 'going_concern',
+                    'audit_report'      => 'audit_report',
+                    'completion'        => 'engagement_summary',
+                ];
+                $aiKey  = $aiKeyByCode[$s['code']] ?? null;
+                $aiStat = $aiKey ? ($aiCounts[$aiKey] ?? null) : null;
             ?>
                 <details class="bg-white rounded-lg border border-slate-200 group">
                     <summary class="cursor-pointer list-none flex items-center gap-3 p-3 hover:bg-slate-50 rounded-lg">
@@ -234,6 +257,16 @@ require __DIR__ . '/../includes/header.php';
                                 <?php if (!empty($s['due_date'])): ?>
                                     <span>Due <?= e(datefmt($s['due_date'])) ?></span>
                                 <?php endif; ?>
+                                <?php if ($wpStat): ?>
+                                    <span class="rounded bg-slate-100 px-1.5 py-0.5 text-[11px]">
+                                        WPs <?= (int) $wpStat['cleared'] ?>/<?= (int) $wpStat['total'] ?>
+                                    </span>
+                                <?php endif; ?>
+                                <?php if ($aiStat): ?>
+                                    <span class="rounded bg-violet-50 text-violet-700 px-1.5 py-0.5 text-[11px]">
+                                        AI <?= (int) $aiStat['accepted'] ?>/<?= (int) $aiStat['runs'] ?>
+                                    </span>
+                                <?php endif; ?>
                                 <?php if (!empty($s['depends_on'])): ?>
                                     <span class="text-slate-400">depends on §<?= e($s['depends_on']) ?></span>
                                 <?php endif; ?>
@@ -258,16 +291,25 @@ require __DIR__ . '/../includes/header.php';
                         // Step-specific deep links to the existing modules that
                         // do the work for this lead.
                         $links = workplan_step_links($s['code'], (int) $eid);
-                        if (!empty($links)): ?>
-                            <div class="flex flex-wrap gap-2">
-                                <?php foreach ($links as $lnk): ?>
-                                    <a href="<?= e($lnk['href']) ?>"
-                                       class="inline-flex items-center gap-1 rounded bg-brand-50 hover:bg-brand-100 text-brand-700 text-xs px-2 py-1">
-                                        <?= e($lnk['label']) ?> &rarr;
-                                    </a>
-                                <?php endforeach; ?>
-                            </div>
-                        <?php endif; ?>
+                        ?>
+                        <div class="flex flex-wrap gap-2 items-center">
+                            <?php if ($canEdit && !$isLocked && !$isClosed): ?>
+                                <form method="post" class="inline">
+                                    <?= csrf_field() ?>
+                                    <input type="hidden" name="_action" value="kickoff">
+                                    <input type="hidden" name="step_no" value="<?= (int) $s['step_no'] ?>">
+                                    <button class="inline-flex items-center gap-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-2.5 py-1 font-medium">
+                                        <?= $spec ? 'Start step & create WP' : 'Start step' ?> &rarr;
+                                    </button>
+                                </form>
+                            <?php endif; ?>
+                            <?php foreach ($links as $lnk): ?>
+                                <a href="<?= e($lnk['href']) ?>"
+                                   class="inline-flex items-center gap-1 rounded bg-brand-50 hover:bg-brand-100 text-brand-700 text-xs px-2 py-1">
+                                    <?= e($lnk['label']) ?> &rarr;
+                                </a>
+                            <?php endforeach; ?>
+                        </div>
 
                         <?php if ($canEdit && !$isLocked): ?>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">

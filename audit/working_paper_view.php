@@ -9,6 +9,7 @@
 
 declare(strict_types=1);
 require_once __DIR__ . '/../includes/auth_guard.php';
+require_once __DIR__ . '/../includes/workplan.php';
 require_role(['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer']);
 require_once __DIR__ . '/../includes/workflow.php';
 
@@ -157,6 +158,11 @@ require __DIR__ . '/../includes/header.php';
 
 <a href="/firm/engagement_view.php?id=<?= (int) $wp['engagement_id'] ?>"
    class="text-sm text-brand-600 hover:underline">&larr; Back to engagement</a>
+
+<?php if (!empty($wp['lead_area'])):
+    $sopStep = workplan_step_for_context('wp_lead_area', (string) $wp['lead_area'], (int) $wp['engagement_id']);
+    echo workplan_breadcrumb_html((int) $wp['engagement_id'], $sopStep);
+endif; ?>
 
 <div class="flex flex-wrap items-start justify-between gap-3 mt-1 mb-5">
     <div>

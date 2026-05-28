@@ -10,6 +10,7 @@
 
 declare(strict_types=1);
 require_once __DIR__ . '/../includes/auth_guard.php';
+require_once __DIR__ . '/../includes/workplan.php';
 require_role(['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer']);
 require_once __DIR__ . '/../includes/lead_schedules.php';
 require_once __DIR__ . '/../includes/workflow.php';
@@ -189,6 +190,17 @@ require __DIR__ . '/../includes/header.php';
 <a href="/audit/lead_schedules.php" class="text-sm text-brand-600 hover:underline">&larr; Change engagement</a>
 <a href="/firm/engagement_view.php?id=<?= (int) $engagementId ?>"
    class="ml-3 text-sm text-brand-600 hover:underline">Engagement workspace</a>
+
+<?php
+// If the user filtered to a single area, surface the matching SOP step.
+// Otherwise the schedule covers many — just link back to workplan.
+$filterArea = $_GET['area'] ?? null;
+if ($filterArea):
+    echo '<div class="mt-3">'
+        . workplan_breadcrumb_html((int) $engagementId,
+            workplan_step_for_context('wp_lead_area', (string) $filterArea, (int) $engagementId))
+        . '</div>';
+endif; ?>
 
 <div class="flex flex-wrap items-end justify-between gap-3 mt-1 mb-5">
     <div>

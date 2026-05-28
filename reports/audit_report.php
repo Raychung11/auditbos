@@ -10,6 +10,7 @@
 
 declare(strict_types=1);
 require_once __DIR__ . '/../includes/auth_guard.php';
+require_once __DIR__ . '/../includes/workplan.php';
 require_role(['firm_admin','audit_manager','senior_auditor','reviewer']);
 require_once __DIR__ . '/../includes/workflow.php';
 
@@ -129,6 +130,11 @@ require __DIR__ . '/../includes/header.php';
 <a href="/reports/audit_report.php" class="ar-no-print text-sm text-brand-600 hover:underline">&larr; Change engagement</a>
 <a href="/firm/engagement_view.php?id=<?= (int) $engagementId ?>"
    class="ar-no-print ml-3 text-sm text-brand-600 hover:underline">Engagement workspace</a>
+
+<?php echo '<div class="ar-no-print mt-3">'
+    . workplan_breadcrumb_html((int) $engagementId,
+        workplan_step_for_context('module', 'audit_report', (int) $engagementId))
+    . '</div>'; ?>
 
 <div class="ar-no-print flex flex-wrap items-end justify-between gap-3 mt-1 mb-5">
     <div>

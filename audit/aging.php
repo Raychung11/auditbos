@@ -9,6 +9,7 @@
 
 declare(strict_types=1);
 require_once __DIR__ . '/../includes/auth_guard.php';
+require_once __DIR__ . '/../includes/workplan.php';
 require_role(['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer']);
 require_once __DIR__ . '/../includes/aging.php';
 
@@ -80,6 +81,13 @@ $pct = static fn(float $part, float $whole): string => $whole != 0.0 ? number_fo
 <a href="/audit/aging.php" class="text-sm text-brand-600 hover:underline">&larr; Change engagement</a>
 <a href="/firm/engagement_view.php?id=<?= (int) $engagementId ?>"
    class="ml-3 text-sm text-brand-600 hover:underline">Engagement workspace</a>
+
+<div class="mt-3">
+<?php echo workplan_breadcrumb_html((int) $engagementId,
+    workplan_step_for_context('module',
+        $type === 'debtor' ? 'aging_debtor' : 'aging_creditor',
+        (int) $engagementId)); ?>
+</div>
 
 <div class="flex flex-wrap items-end justify-between gap-3 mt-1 mb-4">
     <div>
