@@ -16,6 +16,12 @@ if (!defined('AUDITBOS_BOOTSTRAPPED')) {
 /**
  * Does a table exist in the current database? Cached per request.
  * Used to fail gracefully when a migration hasn't been applied yet.
+ *
+ * Implementation note: uses information_schema, not SHOW TABLES LIKE,
+ * because the project runs PDO with EMULATE_PREPARES=false. MySQL
+ * native prepares do not support parameter binding on SHOW statements,
+ * so SHOW TABLES LIKE :n silently fails and the catch returns false —
+ * which would wrongly flag every migration as "not applied".
  */
 function table_exists(string $name): bool
 {
@@ -24,7 +30,11 @@ function table_exists(string $name): bool
         return $cache[$name];
     }
     try {
-        $stmt = db()->prepare('SHOW TABLES LIKE :n');
+        $stmt = db()->prepare(
+            'SELECT 1 FROM information_schema.tables
+              WHERE table_schema = DATABASE() AND table_name = :n
+              LIMIT 1'
+        );
         $stmt->execute([':n' => $name]);
         return $cache[$name] = (bool) $stmt->fetchColumn();
     } catch (Throwable $e) {
