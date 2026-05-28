@@ -12,6 +12,8 @@
 declare(strict_types=1);
 require_once __DIR__ . '/../includes/auth_guard.php';
 require_role(['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer']);
+require_once __DIR__ . '/../includes/workflow.php';
+require_once __DIR__ . '/../includes/workplan.php';
 
 $pdo    = db();
 $firmId = current_firm_id();
@@ -47,6 +49,79 @@ $canEdit = role_allows(['firm_admin','audit_manager','senior_auditor']);
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
     $action = $_POST['_action'] ?? '';
+
+    // --- Approval workflow transitions ---------------------------------
+    if (in_array($action, ['wf_submit','wf_approve','wf_return','wf_lock','wf_unlock'], true)) {
+        $cur = $pdo->prepare('SELECT review_stage, status, locked_at FROM engagements WHERE id = :id AND firm_id = :fid');
+        $cur->execute([':id'=>$id, ':fid'=>$firmId]);
+        $engRow = $cur->fetch();
+        if (!$engRow) { flash('error','Engagement not found.'); redirect('/firm/engagements.php'); }
+        $stage  = $engRow['review_stage'];
+        $locked = $engRow['locked_at'] !== null;
+        $role   = current_role();
+        $notes  = trim((string)($_POST['notes'] ?? '')) ?: null;
+
+        if ($action === 'wf_submit' || $action === 'wf_approve') {
+            if ($locked) {
+                flash('error', 'Engagement is locked. Unlock first.');
+            } elseif (!in_array($role, workflow_approvers($stage), true)) {
+                flash('error', 'Your role cannot advance the file from "' . workflow_stages()[$stage]['label'] . '".');
+            } else {
+                $next = workflow_next_stage($stage);
+                if ($next) {
+                    $newStatus = $next === 'signed_off' ? 'completed' : 'under_review';
+                    $pdo->prepare('UPDATE engagements SET review_stage = :rs, status = :st WHERE id = :id')
+                        ->execute([':rs'=>$next, ':st'=>$newStatus, ':id'=>$id]);
+                    workflow_log($id, $action === 'wf_submit' ? 'submit' : ($next === 'signed_off' ? 'sign_off' : 'approve'),
+                        $stage, $next, $notes);
+                    flash('success', $next === 'signed_off'
+                        ? 'Partner sign-off recorded. You can now lock the file.'
+                        : 'Moved to ' . workflow_stages()[$next]['label'] . '.');
+                }
+            }
+        } elseif ($action === 'wf_return') {
+            if ($locked) {
+                flash('error', 'Engagement is locked. Unlock first.');
+            } elseif ($stage === 'preparation') {
+                flash('error', 'Already in preparation.');
+            } elseif (!in_array($role, workflow_approvers($stage), true)) {
+                flash('error', 'Your role cannot return this file.');
+            } else {
+                $pdo->prepare('UPDATE engagements SET review_stage = "preparation", status = "in_progress" WHERE id = :id')
+                    ->execute([':id'=>$id]);
+                workflow_log($id, 'return', $stage, 'preparation', $notes);
+                flash('success', 'Returned to preparation' . ($notes ? ' with notes.' : '.'));
+            }
+        } elseif ($action === 'wf_lock') {
+            if ($role !== 'firm_admin') {
+                flash('error', 'Only a firm admin (partner) can lock the file.');
+            } elseif ($stage !== 'signed_off') {
+                flash('error', 'The file must be partner-signed-off before locking.');
+            } elseif ($locked) {
+                flash('error', 'Already locked.');
+            } else {
+                $pdo->prepare('UPDATE engagements SET locked_at = NOW(), locked_by = :u, status = "archived" WHERE id = :id')
+                    ->execute([':u'=>current_user_id(), ':id'=>$id]);
+                workflow_log($id, 'lock', $stage, $stage, $notes);
+                flash('success', 'Engagement locked and archived. It is now read-only.');
+            }
+        } elseif ($action === 'wf_unlock') {
+            if ($role !== 'firm_admin') {
+                flash('error', 'Only a firm admin (partner) can unlock the file.');
+            } elseif (!$locked) {
+                flash('error', 'Not locked.');
+            } else {
+                $pdo->prepare('UPDATE engagements SET locked_at = NULL, locked_by = NULL, status = "completed" WHERE id = :id')
+                    ->execute([':id'=>$id]);
+                workflow_log($id, 'unlock', $stage, $stage, $notes);
+                flash('success', 'Engagement unlocked. Changes are allowed again.');
+            }
+        }
+        redirect('/firm/engagement_view.php?id=' . $id);
+    }
+
+    // --- All other mutations require the engagement to be unlocked -----
+    assert_engagement_open($id);
 
     if ($action === 'seed_checklist' && $canEdit) {
         // Pull default categories (firm_id NULL or matching this firm) and
@@ -146,7 +221,7 @@ $wpStmt->execute([':eid' => $id]);
 $workingPapers = $wpStmt->fetchAll();
 
 $aiStmt = $pdo->prepare(
-    'SELECT id, function_name, title, content, status, created_at
+    'SELECT id, output_type, title, content, status, created_at
        FROM ai_outputs
       WHERE engagement_id = :eid
       ORDER BY created_at DESC
@@ -155,9 +230,202 @@ $aiStmt = $pdo->prepare(
 $aiStmt->execute([':eid' => $id]);
 $aiOutputs = $aiStmt->fetchAll();
 
+// Accounting data summary (TB rows per period + GL row count)
+$dataStmt = $pdo->prepare(
+    'SELECT
+        (SELECT COUNT(*) FROM trial_balances WHERE engagement_id = :e AND period = "current") AS tb_current,
+        (SELECT COUNT(*) FROM trial_balances WHERE engagement_id = :e2 AND period = "prior")   AS tb_prior,
+        (SELECT COUNT(*) FROM general_ledgers WHERE engagement_id = :e3) AS gl_rows'
+);
+$dataStmt->execute([':e'=>$id, ':e2'=>$id, ':e3'=>$id]);
+$dataSummary = $dataStmt->fetch() ?: ['tb_current'=>0, 'tb_prior'=>0, 'gl_rows'=>0];
+
+// Completion rings — Data Preparation / Audit Work / Reporting.
+$matExists = (int) $pdo->prepare(
+    'SELECT COUNT(*) FROM engagement_materiality WHERE engagement_id = :e'
+)->execute([':e'=>$id]) ? null : null; // executed below
+$stmt = $pdo->prepare('SELECT COUNT(*) FROM engagement_materiality WHERE engagement_id = :e');
+$stmt->execute([':e'=>$id]);
+$matExists = (int) $stmt->fetchColumn() > 0;
+
+$stmt = $pdo->prepare(
+    'SELECT
+       SUM(CASE WHEN output_type = "audit_report"  THEN 1 ELSE 0 END) AS reports,
+       SUM(CASE WHEN output_type = "going_concern" THEN 1 ELSE 0 END) AS gc
+       FROM ai_outputs WHERE engagement_id = :e'
+);
+$stmt->execute([':e'=>$id]);
+$outputCounts = $stmt->fetch() ?: ['reports'=>0, 'gc'=>0];
+
+$dataPrepHits = (int) ($dataSummary['tb_current'] > 0)
+              + (int) ($dataSummary['tb_prior']   > 0)
+              + (int) ($dataSummary['gl_rows']    > 0)
+              + (int) $matExists;
+$dataPrepPct  = (int) round(($dataPrepHits / 4) * 100);
+
+$wpTotal = count($workingPapers);
+$wpDone  = count(array_filter($workingPapers,
+    static fn($w) => in_array($w['status'], ['cleared','completed'], true)));
+$auditPct = $wpTotal > 0 ? (int) round(($wpDone / $wpTotal) * 100) : 0;
+
+$reportingHits = (int) ($dataSummary['tb_current'] > 0)                         // FS computable
+               + (int) ((int) $outputCounts['reports'] > 0)                      // auditor's report drafted
+               + (int) (($eng['review_stage'] ?? '') === 'signed_off')           // signed off
+               + (int) !empty($eng['locked_at']);                                // locked/archived
+$reportingPct = (int) round(($reportingHits / 4) * 100);
+
+// 27-step audit workplan — auto-seed if missing, auto-sync hook-based steps,
+// then load the summary for the workspace card.
+workplan_seed_engagement($id);
+workplan_sync_status($id);
+$workplanSummary = workplan_summary($id);
+
+// Engagement-scoped activity timeline (last 60 events).
+require_once __DIR__ . '/../includes/timeline.php';
+$timeline = engagement_timeline($id, 60);
+
+// Approval workflow: current stage, lock state, sign-off history.
+$reviewStage = $eng['review_stage'] ?? 'preparation';
+$isLocked    = !empty($eng['locked_at']);
+$lockedByName = null;
+if ($isLocked && !empty($eng['locked_by'])) {
+    $lb = $pdo->prepare('SELECT name FROM users WHERE id = :id');
+    $lb->execute([':id' => $eng['locked_by']]);
+    $lockedByName = $lb->fetchColumn() ?: null;
+}
+$signoffStmt = $pdo->prepare(
+    'SELECT es.*, u.name AS user_name, u.role AS user_role
+       FROM engagement_signoffs es
+       LEFT JOIN users u ON u.id = es.user_id
+      WHERE es.engagement_id = :e
+      ORDER BY es.created_at DESC
+      LIMIT 20'
+);
+$signoffStmt->execute([':e' => $id]);
+$signoffs = $signoffStmt->fetchAll();
+$stages   = workflow_stages();
+$myRole   = current_role();
+$canApprove = in_array($myRole, workflow_approvers($reviewStage), true);
+
 $pageTitle = $eng['company_name'] . ' · ' . $eng['financial_year'];
 require __DIR__ . '/../includes/header.php';
 ?>
+
+<?php if ($isLocked): ?>
+    <div class="mb-6 rounded-lg bg-slate-800 text-slate-100 px-5 py-3 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-2 text-sm">
+            <svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+            </svg>
+            <span><strong>Locked &amp; archived.</strong>
+                Signed off<?= $lockedByName ? ' · locked by ' . e($lockedByName) : '' ?>
+                · <?= e(datefmt($eng['locked_at'], 'd M Y H:i')) ?>. This file is read-only.</span>
+        </div>
+        <?php if ($myRole === 'firm_admin'): ?>
+            <form method="post">
+                <?= csrf_field() ?>
+                <input type="hidden" name="_action" value="wf_unlock">
+                <button class="rounded bg-amber-500 text-amber-950 hover:bg-amber-400 px-3 py-1.5 text-xs font-semibold">
+                    Unlock
+                </button>
+            </form>
+        <?php endif; ?>
+    </div>
+<?php endif; ?>
+
+<!-- 27-step audit workplan SOP -->
+<div class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+        <div>
+            <div class="flex items-center gap-2">
+                <h3 class="font-semibold text-slate-900">Audit workplan</h3>
+                <span class="text-xs uppercase tracking-wide text-slate-400">27-step SOP</span>
+            </div>
+            <p class="text-xs text-slate-500 mt-1">
+                Standard audit programme from Client Acceptance through File Locking.
+                Steps marked <em>auto</em> advance when the underlying feature is done.
+            </p>
+        </div>
+        <a href="/audit/workplan.php?eid=<?= (int) $id ?>"
+           class="inline-flex items-center gap-1 rounded bg-brand-600 hover:bg-brand-700 text-white text-sm px-3 py-1.5">
+            Open workplan &rarr;
+        </a>
+    </div>
+    <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-4">
+        <div class="rounded border border-slate-200 px-3 py-2">
+            <div class="text-xs uppercase tracking-wide text-slate-500">Cleared</div>
+            <div class="text-lg font-semibold text-slate-900">
+                <?= (int) $workplanSummary['cleared'] ?> / <?= (int) $workplanSummary['total'] ?>
+                <span class="text-xs text-slate-500 font-normal">(<?= (int) $workplanSummary['pct'] ?>%)</span>
+            </div>
+        </div>
+        <?php foreach (workplan_phases() as $key => $label):
+            $p = $workplanSummary['by_phase'][$key] ?? ['total'=>0,'cleared'=>0]; ?>
+            <div class="rounded border border-slate-200 px-3 py-2">
+                <div class="text-xs uppercase tracking-wide text-slate-500"><?= e($label) ?></div>
+                <div class="text-lg font-semibold text-slate-900">
+                    <?= (int) $p['cleared'] ?> / <?= (int) $p['total'] ?>
+                </div>
+            </div>
+        <?php endforeach; ?>
+    </div>
+    <div class="h-2 bg-slate-100 rounded-full overflow-hidden mt-4">
+        <div class="h-full bg-emerald-500 transition-all" style="width: <?= (int) $workplanSummary['pct'] ?>%"></div>
+    </div>
+</div>
+
+<!-- Completion rings (data prep / audit work / reporting) -->
+<?php
+$ringHtml = static function (int $pct, string $label, string $colour): string {
+    $r = 36; $c = 2 * M_PI * $r; $dash = $c - ($pct / 100) * $c;
+    ob_start(); ?>
+    <div class="flex items-center gap-3">
+        <svg viewBox="0 0 88 88" class="w-20 h-20 -rotate-90 shrink-0">
+            <circle cx="44" cy="44" r="<?= $r ?>" fill="none" stroke="#e2e8f0" stroke-width="8"></circle>
+            <circle cx="44" cy="44" r="<?= $r ?>" fill="none" stroke="<?= $colour ?>" stroke-width="8"
+                    stroke-dasharray="<?= number_format($c, 3) ?>"
+                    stroke-dashoffset="<?= number_format($dash, 3) ?>"
+                    stroke-linecap="round" style="transition: stroke-dashoffset .6s ease-out"></circle>
+            <text x="44" y="44" text-anchor="middle" dominant-baseline="central"
+                  transform="rotate(90 44 44)" font-size="18" font-weight="700" fill="#0f172a"><?= $pct ?>%</text>
+        </svg>
+        <div>
+            <div class="text-sm font-semibold text-slate-900"><?= e($label) ?></div>
+        </div>
+    </div>
+    <?php return (string) ob_get_clean();
+};
+?>
+<div class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
+    <h3 class="font-semibold text-slate-900 mb-4">Engagement completion</h3>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div>
+            <?= $ringHtml($dataPrepPct, 'Data Preparation', '#10b981') ?>
+            <div class="text-xs text-slate-500 mt-2">
+                TB curr <?= (int)($dataSummary['tb_current'] > 0) ?>/1 ·
+                TB prior <?= (int)($dataSummary['tb_prior']   > 0) ?>/1 ·
+                GL <?= (int)($dataSummary['gl_rows']        > 0) ?>/1 ·
+                Materiality <?= $matExists ? 1 : 0 ?>/1
+            </div>
+        </div>
+        <div>
+            <?= $ringHtml($auditPct, 'Audit Work', '#4f46e5') ?>
+            <div class="text-xs text-slate-500 mt-2">
+                Working papers cleared/completed: <?= $wpDone ?>/<?= $wpTotal ?>
+            </div>
+        </div>
+        <div>
+            <?= $ringHtml($reportingPct, 'Reporting & Sign-off', '#f59e0b') ?>
+            <div class="text-xs text-slate-500 mt-2">
+                FS <?= (int)($dataSummary['tb_current'] > 0) ?>/1 ·
+                Report <?= (int)((int)$outputCounts['reports'] > 0) ?>/1 ·
+                Signed off <?= (int)(($eng['review_stage'] ?? '') === 'signed_off') ?>/1 ·
+                Locked <?= !empty($eng['locked_at']) ? 1 : 0 ?>/1
+            </div>
+        </div>
+    </div>
+</div>
 
 <!-- Header card -->
 <div class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
@@ -171,6 +439,16 @@ require __DIR__ . '/../includes/header.php';
                 <?= e($eng['financial_year']) ?>
                 · <?= e(ucfirst($eng['engagement_type'])) ?>
                 <?= $eng['engagement_code'] ? ' · ' . e($eng['engagement_code']) : '' ?>
+                <?php if (!empty($eng['rolled_over_from_id'])):
+                    $src = $pdo->prepare('SELECT financial_year FROM engagements WHERE id = :id');
+                    $src->execute([':id' => (int) $eng['rolled_over_from_id']]);
+                    $srcFy = $src->fetchColumn();
+                ?>
+                    · <a href="/firm/engagement_view.php?id=<?= (int) $eng['rolled_over_from_id'] ?>"
+                         class="text-brand-600 hover:underline">
+                        Rolled over from <?= e($srcFy ?: '#' . (int) $eng['rolled_over_from_id']) ?>
+                      </a>
+                <?php endif; ?>
             </p>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 text-sm">
                 <div>
@@ -193,8 +471,14 @@ require __DIR__ . '/../includes/header.php';
         </div>
         <div class="flex flex-col gap-2 items-end">
             <?php if ($canEdit): ?>
-                <a href="/firm/engagements.php?action=edit&id=<?= (int) $eng['id'] ?>"
-                   class="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">Edit</a>
+                <div class="flex gap-2">
+                    <a href="/firm/engagements.php?action=rollover&source_id=<?= (int) $eng['id'] ?>"
+                       class="rounded border border-emerald-300 text-emerald-700 hover:bg-emerald-50 px-3 py-1.5 text-sm">
+                        Roll over to next year
+                    </a>
+                    <a href="/firm/engagements.php?action=edit&id=<?= (int) $eng['id'] ?>"
+                       class="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">Edit</a>
+                </div>
                 <form method="post" class="flex items-center gap-2">
                     <?= csrf_field() ?>
                     <input type="hidden" name="_action" value="update_eng_status">
@@ -213,6 +497,109 @@ require __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
+<!-- Approval workflow tracker -->
+<div class="bg-white rounded-lg border border-slate-200 p-5 mb-6">
+    <div class="flex flex-wrap items-center justify-between gap-4">
+        <div class="flex-1 min-w-[260px]">
+            <h3 class="font-semibold text-slate-900 mb-3">Review &amp; sign-off</h3>
+            <!-- Stage progress -->
+            <ol class="flex flex-wrap items-center gap-1 text-xs">
+                <?php
+                $curOrder = $stages[$reviewStage]['order'] ?? 0;
+                $last = array_key_last($stages);
+                foreach ($stages as $key => $meta):
+                    $done    = $meta['order'] < $curOrder || $isLocked;
+                    $current = $key === $reviewStage && !$isLocked;
+                    $dot = $done ? 'bg-emerald-500 text-white'
+                         : ($current ? 'bg-brand-600 text-white' : 'bg-slate-200 text-slate-500');
+                ?>
+                    <li class="flex items-center gap-1">
+                        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full <?= $dot ?> font-semibold">
+                            <?php if ($done): ?>&#10003;<?php else: ?><?= (int) $meta['order'] + 1 ?><?php endif; ?>
+                        </span>
+                        <span class="<?= $current ? 'font-semibold text-slate-900' : 'text-slate-500' ?>">
+                            <?= e($meta['label']) ?>
+                        </span>
+                        <?php if ($key !== $last): ?>
+                            <span class="mx-1 text-slate-300">&rarr;</span>
+                        <?php endif; ?>
+                    </li>
+                <?php endforeach; ?>
+                <?php if ($isLocked): ?>
+                    <li class="flex items-center gap-1">
+                        <span class="mx-1 text-slate-300">&rarr;</span>
+                        <span class="inline-flex items-center gap-1 rounded-full bg-slate-800 text-white px-2 py-0.5 font-semibold">Locked</span>
+                    </li>
+                <?php endif; ?>
+            </ol>
+        </div>
+
+        <!-- Actions -->
+        <?php if (!$isLocked): ?>
+            <div class="flex flex-wrap items-end gap-2">
+                <?php if ($reviewStage !== 'signed_off' && $canApprove): ?>
+                    <form method="post" class="flex items-end gap-2">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="_action"
+                               value="<?= $reviewStage === 'preparation' ? 'wf_submit' : 'wf_approve' ?>">
+                        <input type="text" name="notes" placeholder="Optional note"
+                               class="rounded border border-slate-300 text-xs px-2 py-1.5 w-40">
+                        <button class="rounded bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 text-sm font-medium whitespace-nowrap">
+                            <?= e(workflow_forward_label($reviewStage)) ?>
+                        </button>
+                    </form>
+                <?php endif; ?>
+                <?php if ($reviewStage !== 'preparation' && $reviewStage !== 'signed_off' && $canApprove): ?>
+                    <form method="post">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="_action" value="wf_return">
+                        <button class="rounded border border-rose-300 text-rose-700 hover:bg-rose-50 px-3 py-1.5 text-sm whitespace-nowrap">
+                            Return to prep
+                        </button>
+                    </form>
+                <?php endif; ?>
+                <?php if ($reviewStage === 'signed_off' && $myRole === 'firm_admin'): ?>
+                    <form method="post" onsubmit="return confirm('Lock the engagement? It becomes read-only until unlocked.');">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="_action" value="wf_lock">
+                        <button class="rounded bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 text-sm font-medium whitespace-nowrap">
+                            Lock &amp; archive
+                        </button>
+                    </form>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
+    </div>
+
+    <?php if (!empty($signoffs)): ?>
+        <details class="mt-4">
+            <summary class="text-xs text-brand-600 cursor-pointer hover:underline">
+                Sign-off history (<?= count($signoffs) ?>)
+            </summary>
+            <ul class="mt-2 space-y-1.5">
+                <?php foreach ($signoffs as $so): ?>
+                    <li class="flex items-baseline justify-between gap-3 text-xs">
+                        <span>
+                            <span class="font-medium"><?= e(ucwords(str_replace('_',' ',$so['action']))) ?></span>
+                            <?php if ($so['from_stage'] && $so['to_stage'] && $so['from_stage'] !== $so['to_stage']): ?>
+                                <span class="text-slate-500">
+                                    <?= e($stages[$so['from_stage']]['label'] ?? $so['from_stage']) ?>
+                                    &rarr; <?= e($stages[$so['to_stage']]['label'] ?? $so['to_stage']) ?>
+                                </span>
+                            <?php endif; ?>
+                            · <?= e($so['user_name'] ?? 'System') ?>
+                            <?php if (!empty($so['notes'])): ?>
+                                <span class="text-slate-500">— "<?= e($so['notes']) ?>"</span>
+                            <?php endif; ?>
+                        </span>
+                        <time class="text-slate-400 whitespace-nowrap"><?= e(datefmt($so['created_at'], 'd M H:i')) ?></time>
+                    </li>
+                <?php endforeach; ?>
+            </ul>
+        </details>
+    <?php endif; ?>
+</div>
+
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
     <!-- Document checklist (2/3 width) -->
@@ -226,15 +613,23 @@ require __DIR__ . '/../includes/header.php';
                         / <?= count($docRequests) ?> total
                     </p>
                 </div>
-                <?php if ($canEdit && empty($docRequests)): ?>
-                    <form method="post">
-                        <?= csrf_field() ?>
-                        <input type="hidden" name="_action" value="seed_checklist">
-                        <button class="rounded bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 text-sm">
-                            Seed Default Checklist
-                        </button>
-                    </form>
-                <?php endif; ?>
+                <div class="flex items-center gap-2">
+                    <?php if ($canEdit && empty($docRequests)): ?>
+                        <form method="post" class="inline">
+                            <?= csrf_field() ?>
+                            <input type="hidden" name="_action" value="seed_checklist">
+                            <button class="rounded bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 text-sm">
+                                Seed Default Checklist
+                            </button>
+                        </form>
+                    <?php endif; ?>
+                    <?php if ($canEdit): ?>
+                        <a href="/firm/doc_requests.php?engagement_id=<?= (int) $eng['id'] ?>"
+                           class="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">
+                            Manage requests
+                        </a>
+                    <?php endif; ?>
+                </div>
             </div>
             <?php if (empty($docRequests)): ?>
                 <div class="p-8 text-center text-sm text-slate-500">
@@ -335,8 +730,60 @@ require __DIR__ . '/../includes/header.php';
         </div>
     </div>
 
-    <!-- AI panel (right column) -->
+    <!-- Right column: data + AI -->
     <div class="space-y-6">
+
+        <!-- Accounting data -->
+        <div class="bg-white rounded-lg border border-slate-200">
+            <div class="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
+                <h3 class="font-semibold text-slate-900">Accounting Data</h3>
+                <a href="/import/index.php?engagement_id=<?= (int) $eng['id'] ?>"
+                   class="text-sm text-brand-600 hover:underline">Import</a>
+            </div>
+            <div class="p-4 space-y-2 text-sm">
+                <div class="flex items-center justify-between">
+                    <span class="text-slate-600">TB rows (current)</span>
+                    <span class="font-medium"><?= (int) $dataSummary['tb_current'] ?></span>
+                </div>
+                <div class="flex items-center justify-between">
+                    <span class="text-slate-600">TB rows (prior)</span>
+                    <span class="font-medium"><?= (int) $dataSummary['tb_prior'] ?></span>
+                </div>
+                <div class="flex items-center justify-between">
+                    <span class="text-slate-600">GL transactions</span>
+                    <span class="font-medium"><?= number_format((int) $dataSummary['gl_rows']) ?></span>
+                </div>
+                <a href="/import/trial_balance_view.php?engagement_id=<?= (int) $eng['id'] ?>"
+                   class="mt-2 block text-center rounded border border-slate-300 px-3 py-1.5 text-xs hover:bg-slate-50">
+                    View trial balance &amp; variance
+                </a>
+                <a href="/audit/lead_schedules.php?engagement_id=<?= (int) $eng['id'] ?>"
+                   class="mt-2 block text-center rounded border border-slate-300 px-3 py-1.5 text-xs hover:bg-slate-50">
+                    Lead schedules
+                </a>
+                <a href="/audit/gl_analytics.php?engagement_id=<?= (int) $eng['id'] ?>"
+                   class="mt-2 block text-center rounded border border-slate-300 px-3 py-1.5 text-xs hover:bg-slate-50">
+                    GL analytics
+                </a>
+                <a href="/audit/analytical_review.php?engagement_id=<?= (int) $eng['id'] ?>"
+                   class="mt-2 block text-center rounded border border-slate-300 px-3 py-1.5 text-xs hover:bg-slate-50">
+                    Materiality &amp; ratios
+                </a>
+                <a href="/audit/aging.php?engagement_id=<?= (int) $eng['id'] ?>"
+                   class="mt-2 block text-center rounded border border-slate-300 px-3 py-1.5 text-xs hover:bg-slate-50">
+                    Aging analysis
+                </a>
+                <a href="/reports/financial_statements.php?engagement_id=<?= (int) $eng['id'] ?>"
+                   class="mt-2 block text-center rounded border border-slate-300 px-3 py-1.5 text-xs hover:bg-slate-50">
+                    Financial statements
+                </a>
+                <a href="/reports/audit_report.php?engagement_id=<?= (int) $eng['id'] ?>"
+                   class="mt-2 block text-center rounded border border-slate-300 px-3 py-1.5 text-xs hover:bg-slate-50">
+                    Auditor's report
+                </a>
+            </div>
+        </div>
+
         <div class="bg-white rounded-lg border border-slate-200">
             <div class="px-5 py-3 border-b border-slate-200">
                 <h3 class="font-semibold text-slate-900">AI Assistant</h3>
@@ -365,12 +812,22 @@ require __DIR__ . '/../includes/header.php';
             </div>
             <?php if (!empty($aiOutputs)): ?>
                 <div class="border-t border-slate-200 px-5 py-3">
-                    <h4 class="text-xs uppercase tracking-wide text-slate-500 mb-2">Recent outputs</h4>
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="text-xs uppercase tracking-wide text-slate-500">Recent outputs</h4>
+                        <a href="/ai/outputs.php?engagement_id=<?= (int) $eng['id'] ?>"
+                           class="text-xs text-brand-600 hover:underline">View all</a>
+                    </div>
                     <ul class="space-y-2">
                         <?php foreach ($aiOutputs as $out): ?>
                             <li class="text-sm">
-                                <div class="font-medium text-slate-800"><?= e($out['title'] ?? $out['function_name']) ?></div>
-                                <div class="text-xs text-slate-500"><?= e(datefmt($out['created_at'], 'd M Y H:i')) ?></div>
+                                <a href="/ai/output_view.php?id=<?= (int) $out['id'] ?>"
+                                   class="font-medium text-slate-800 hover:text-brand-700 hover:underline block">
+                                    <?= e($out['title'] ?? $out['output_type']) ?>
+                                </a>
+                                <div class="flex items-center gap-2 mt-0.5">
+                                    <span class="text-xs text-slate-500"><?= e(datefmt($out['created_at'], 'd M Y H:i')) ?></span>
+                                    <?= badge($out['status']) ?>
+                                </div>
                             </li>
                         <?php endforeach; ?>
                     </ul>
@@ -378,6 +835,52 @@ require __DIR__ . '/../includes/header.php';
             <?php endif; ?>
         </div>
     </div>
+</div>
+
+<!-- Activity timeline -->
+<div class="mt-8 bg-white rounded-lg border border-slate-200">
+    <div class="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
+        <h3 class="font-semibold text-slate-900">Activity timeline</h3>
+        <span class="text-xs text-slate-500">Latest <?= count($timeline) ?> events</span>
+    </div>
+    <?php if (empty($timeline)): ?>
+        <div class="p-8 text-center text-sm text-slate-500">
+            No recorded activity yet.
+        </div>
+    <?php else: ?>
+        <ol class="relative px-5 py-4">
+            <span class="absolute left-7 top-4 bottom-4 w-px bg-slate-200" aria-hidden="true"></span>
+            <?php foreach ($timeline as $t):
+                $meta = timeline_action_meta($t['action']);
+                $dot  = timeline_dot_classes($meta['tone']);
+            ?>
+                <li class="relative pl-8 py-2">
+                    <span class="absolute left-1.5 top-3 w-3 h-3 rounded-full <?= $dot ?> ring-4 ring-white"></span>
+                    <div class="flex items-baseline justify-between gap-3">
+                        <div class="min-w-0">
+                            <div class="text-sm text-slate-800">
+                                <span class="font-medium"><?= e($meta['label']) ?></span>
+                                <?php if (!empty($t['description'])): ?>
+                                    <span class="text-slate-500">·</span>
+                                    <span class="text-slate-600"><?= e($t['description']) ?></span>
+                                <?php endif; ?>
+                            </div>
+                            <div class="text-xs text-slate-500 mt-0.5">
+                                <?= e($t['user_name'] ?? 'System') ?>
+                                <?php if ($t['user_role']): ?>
+                                    · <?= e(ucwords(str_replace('_',' ',$t['user_role']))) ?>
+                                <?php endif; ?>
+                                · <code class="text-[10px] font-mono text-slate-400"><?= e($t['action']) ?></code>
+                            </div>
+                        </div>
+                        <time class="text-xs text-slate-500 whitespace-nowrap" datetime="<?= e($t['created_at']) ?>">
+                            <?= e(datefmt($t['created_at'], 'd M Y H:i')) ?>
+                        </time>
+                    </div>
+                </li>
+            <?php endforeach; ?>
+        </ol>
+    <?php endif; ?>
 </div>
 
 <?php require __DIR__ . '/../includes/footer.php'; ?>

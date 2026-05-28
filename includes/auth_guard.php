@@ -85,6 +85,28 @@ function current_firm_id(): ?int
     return $u && !empty($u['firm_id']) ? (int) $u['firm_id'] : null;
 }
 
+/**
+ * When a super admin is impersonating a firm user, $_SESSION['user']
+ * holds the impersonated identity (so all scoping, permission checks
+ * and queries flow naturally), and $_SESSION['real_user'] holds the
+ * original super-admin session payload for reversibility.
+ */
+function is_impersonating(): bool
+{
+    return !empty($_SESSION['real_user']) && is_array($_SESSION['real_user']);
+}
+
+function real_user(): ?array
+{
+    return $_SESSION['real_user'] ?? current_user();
+}
+
+function real_user_id(): ?int
+{
+    $u = real_user();
+    return $u ? (int) $u['id'] : null;
+}
+
 function current_role(): ?string
 {
     $u = current_user();

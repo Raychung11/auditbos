@@ -9,6 +9,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/../includes/auth_guard.php';
 require_role(['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer']);
+require_once __DIR__ . '/../includes/workflow.php';
 
 $pdo    = db();
 $firmId = current_firm_id();
@@ -42,6 +43,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $check->execute([':id'=>$engId, ':fid'=>$firmId]);
     if (!$check->fetch()) {
         flash('error', 'Invalid engagement.');
+    } elseif (engagement_locked($engId)) {
+        flash('error', 'This engagement is locked. Unlock it to edit working papers.');
+        redirect('/firm/engagement_view.php?id=' . $engId);
     } elseif ($title === '' || !in_array($status, $statuses, true)) {
         flash('error', 'Title and a valid status are required.');
     } else {
@@ -59,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $pdo->prepare(
                     'UPDATE audit_working_papers
-                        SET section_id=:sid, reference_code=:rc, title=:t, procedure=:p,
+                        SET section_id=:sid, reference_code=:rc, title=:t, `procedure`=:p,
                             conclusion=:c, notes=:n, status=:s, risk_rating=:r,
                             prepared_by = CASE WHEN status IN ("not_started") AND :s2 <> "not_started"
                                                THEN :uid ELSE prepared_by END,
@@ -77,7 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $pdo->prepare(
                     'INSERT INTO audit_working_papers
-                        (engagement_id, section_id, reference_code, title, procedure,
+                        (engagement_id, section_id, reference_code, title, `procedure`,
                          conclusion, notes, status, risk_rating, prepared_by, prepared_at)
                      VALUES
                         (:eid, :sid, :rc, :t, :p, :c, :n, :s, :r,

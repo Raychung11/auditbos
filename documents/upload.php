@@ -14,6 +14,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/../includes/auth_guard.php';
 require_role(['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer','client_user']);
+require_once __DIR__ . '/../includes/workflow.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     redirect('/documents/index.php');
@@ -29,6 +30,12 @@ $requestId    = (int)($_POST['document_request_id'] ?? 0) ?: null;
 
 if ($engagementId <= 0 || empty($_FILES['file']) || $_FILES['file']['error'] === UPLOAD_ERR_NO_FILE) {
     flash('error', 'No file selected.');
+    redirect('/documents/index.php?engagement_id=' . $engagementId);
+}
+
+// No uploads once the engagement is locked.
+if (engagement_locked($engagementId)) {
+    flash('error', 'This engagement is locked. No further uploads allowed.');
     redirect('/documents/index.php?engagement_id=' . $engagementId);
 }
 

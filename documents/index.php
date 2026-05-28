@@ -19,6 +19,56 @@ $pdo  = db();
 $role = current_role();
 $user = current_user();
 $engagementId = isset($_GET['engagement_id']) ? (int) $_GET['engagement_id'] : 0;
+$canClassify = in_array($role, ['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer'], true)
+            && defined('AI_ENABLED');  // even in stub mode the button works
+
+// ---------------------------------------------------------------------
+// POST: AI classify a document, or apply a previous classification
+// ---------------------------------------------------------------------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canClassify) {
+    csrf_check();
+    $action = $_POST['_action'] ?? '';
+    $docId  = (int)($_POST['document_id'] ?? 0);
+    $bounceTo = isset($_POST['engagement_id'])
+        ? '/documents/index.php?engagement_id=' . (int) $_POST['engagement_id']
+        : '/documents/index.php';
+
+    if ($action === 'classify_document' && $docId > 0) {
+        require_once __DIR__ . '/../ai/document_classify.php';
+        $result = ai_classify_document($docId);
+        flash($result['ok'] ? 'success' : 'error', $result['summary'] ?: $result['output']);
+        redirect($bounceTo);
+    }
+
+    if ($action === 'apply_classification' && $docId > 0) {
+        $reqId = (int)($_POST['request_id'] ?? 0);
+        // Verify both the doc and the request belong to the same firm-scoped engagement.
+        $check = $pdo->prepare(
+            'SELECT ed.id
+               FROM engagement_documents ed
+               JOIN engagements e ON e.id = ed.engagement_id
+               JOIN document_requests dr ON dr.engagement_id = e.id
+              WHERE ed.id = :d AND dr.id = :r AND e.firm_id = :fid'
+        );
+        $check->execute([':d'=>$docId, ':r'=>$reqId, ':fid'=>current_firm_id()]);
+        if ($check->fetch()) {
+            $pdo->beginTransaction();
+            $pdo->prepare(
+                'UPDATE engagement_documents SET document_request_id = :r WHERE id = :d'
+            )->execute([':r'=>$reqId, ':d'=>$docId]);
+            $pdo->prepare(
+                'UPDATE document_requests SET status = "received"
+                  WHERE id = :r AND status IN ("pending","needs_clarification","rejected")'
+            )->execute([':r'=>$reqId]);
+            $pdo->commit();
+            log_activity('docreq.status', 'document_request', $reqId, 'received (AI-applied)');
+            flash('success', 'Document linked to request and marked received.');
+        } else {
+            flash('error', 'Cannot apply classification — out of scope.');
+        }
+        redirect($bounceTo);
+    }
+}
 
 // ---------------------------------------------------------------------
 // Build the list of engagements visible to this user.
@@ -114,6 +164,27 @@ if ($engagementId > 0) {
     );
     $docStmt->execute([':eid' => $engagementId]);
     $documents = $docStmt->fetchAll();
+
+    // Latest AI classification per document (firm staff only).
+    $classifications = [];
+    if ($role !== 'client_user' && !empty($documents)) {
+        $classStmt = $pdo->prepare(
+            'SELECT ao.entity_id, ao.content, ao.created_at, ao.id AS output_id
+               FROM ai_outputs ao
+              WHERE ao.engagement_id = :eid
+                AND ao.entity_type = "engagement_document"
+                AND ao.output_type = "document_classification"
+              ORDER BY ao.created_at DESC'
+        );
+        $classStmt->execute([':eid' => $engagementId]);
+        foreach ($classStmt->fetchAll() as $row) {
+            // First (most recent) wins per doc.
+            $did = (int) $row['entity_id'];
+            if (!isset($classifications[$did])) {
+                $classifications[$did] = $row;
+            }
+        }
+    }
 }
 
 $pageTitle = 'Documents';
@@ -246,23 +317,93 @@ require __DIR__ . '/../includes/header.php';
                 <div class="p-8 text-center text-sm text-slate-500">No files uploaded yet.</div>
             <?php else: ?>
                 <ul class="divide-y divide-slate-200">
-                    <?php foreach ($documents as $d): ?>
-                        <li class="px-5 py-3 flex items-center justify-between gap-3">
-                            <div class="min-w-0">
-                                <a href="/documents/download.php?id=<?= (int) $d['id'] ?>"
-                                   class="font-medium text-slate-900 hover:text-brand-700 hover:underline truncate block">
-                                    <?= e($d['original_filename']) ?>
-                                </a>
-                                <div class="text-xs text-slate-500">
-                                    <?= e($d['request_title'] ?? 'Unlinked') ?>
-                                    · <?= e(human_filesize((int) $d['file_size'])) ?>
-                                    · <?= e($d['uploader_name'] ?? '') ?>
-                                    · <?= e(datefmt($d['created_at'], 'd M Y H:i')) ?>
+                    <?php foreach ($documents as $d):
+                        $cls = $classifications[(int) $d['id']] ?? null;
+                        $clsData = $cls ? (json_decode(
+                            preg_replace('/^```(?:json)?\s*|\s*```$/s', '', trim((string) $cls['content'])) ?? '',
+                            true
+                        ) ?: []) : [];
+                    ?>
+                        <li class="px-5 py-3">
+                            <div class="flex items-center justify-between gap-3">
+                                <div class="min-w-0">
+                                    <a href="/documents/download.php?id=<?= (int) $d['id'] ?>"
+                                       class="font-medium text-slate-900 hover:text-brand-700 hover:underline truncate block">
+                                        <?= e($d['original_filename']) ?>
+                                    </a>
+                                    <div class="text-xs text-slate-500">
+                                        <?= e($d['request_title'] ?? 'Unlinked') ?>
+                                        · <?= e(human_filesize((int) $d['file_size'])) ?>
+                                        · <?= e($d['uploader_name'] ?? '') ?>
+                                        · <?= e(datefmt($d['created_at'], 'd M Y H:i')) ?>
+                                    </div>
+                                </div>
+                                <div class="text-right shrink-0 flex items-center gap-2">
+                                    <?= badge($d['status']) ?>
+                                    <?php if ($canClassify): ?>
+                                        <form method="post" class="inline">
+                                            <?= csrf_field() ?>
+                                            <input type="hidden" name="_action" value="classify_document">
+                                            <input type="hidden" name="document_id" value="<?= (int) $d['id'] ?>">
+                                            <input type="hidden" name="engagement_id" value="<?= (int) $engagementId ?>">
+                                            <button class="text-xs rounded border border-purple-300 text-purple-700 px-2 py-1 hover:bg-purple-50">
+                                                <?= $cls ? 'Reclassify' : 'AI classify' ?>
+                                            </button>
+                                        </form>
+                                    <?php endif; ?>
                                 </div>
                             </div>
-                            <div class="text-right shrink-0">
-                                <?= badge($d['status']) ?>
-                            </div>
+
+                            <?php if ($cls && $canClassify): ?>
+                                <div class="mt-3 ml-1 pl-3 border-l-2 border-purple-200 bg-purple-50/40 rounded-r py-2 pr-2">
+                                    <div class="flex items-center gap-2 mb-1">
+                                        <span class="text-[10px] uppercase tracking-wide font-semibold text-purple-700">AI</span>
+                                        <?php if (!empty($clsData['confidence'])): ?>
+                                            <span class="text-xs text-slate-600"><?= e(ucfirst($clsData['confidence'])) ?> confidence</span>
+                                        <?php endif; ?>
+                                        <span class="text-[11px] text-slate-400 ml-auto">
+                                            <?= e(datefmt($cls['created_at'], 'd M H:i')) ?>
+                                        </span>
+                                    </div>
+                                    <?php if (!empty($clsData['summary'])): ?>
+                                        <p class="text-sm text-slate-700"><?= e($clsData['summary']) ?></p>
+                                    <?php endif; ?>
+                                    <?php if (!empty($clsData['suggested_request_title'])
+                                            && !empty($clsData['suggested_request_id'])): ?>
+                                        <div class="mt-2 flex flex-wrap items-center gap-2">
+                                            <span class="text-xs text-slate-600">Suggested:
+                                                <strong><?= e($clsData['suggested_request_title']) ?></strong>
+                                            </span>
+                                            <?php if ((int)($d['document_request_id'] ?? 0) !== (int) $clsData['suggested_request_id']): ?>
+                                                <form method="post" class="inline">
+                                                    <?= csrf_field() ?>
+                                                    <input type="hidden" name="_action" value="apply_classification">
+                                                    <input type="hidden" name="document_id" value="<?= (int) $d['id'] ?>">
+                                                    <input type="hidden" name="request_id" value="<?= (int) $clsData['suggested_request_id'] ?>">
+                                                    <input type="hidden" name="engagement_id" value="<?= (int) $engagementId ?>">
+                                                    <button class="text-xs rounded bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1">
+                                                        Apply &amp; mark received
+                                                    </button>
+                                                </form>
+                                            <?php else: ?>
+                                                <span class="text-xs text-emerald-700">Already linked</span>
+                                            <?php endif; ?>
+                                        </div>
+                                    <?php endif; ?>
+                                    <?php if (!empty($clsData['key_figures']) && is_array($clsData['key_figures'])): ?>
+                                        <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-1">
+                                            <?php foreach (array_slice($clsData['key_figures'], 0, 6) as $kf):
+                                                if (!is_array($kf)) continue;
+                                            ?>
+                                                <div class="text-xs">
+                                                    <span class="text-slate-500"><?= e((string)($kf['label'] ?? '')) ?>:</span>
+                                                    <span class="font-medium"><?= e((string)($kf['value'] ?? '')) ?></span>
+                                                </div>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
+                            <?php endif; ?>
                         </li>
                     <?php endforeach; ?>
                 </ul>

@@ -20,7 +20,27 @@ define('DB_PASS', 'replace-me');
 define('AI_PROVIDER', 'anthropic');
 define('AI_MODEL',    'claude-opus-4-7');
 define('AI_API_KEY',  '');       // set to enable real AI calls
-define('AI_CREDITS_PER_CALL', 1.00);
+
+// Anthropic publishes prices in USD; firm wallets are MYR. Override
+// the FX rate per environment to track what your firm actually pays.
+define('AI_USD_TO_MYR', 4.70);
+define('AI_CREDIT_MARKUP', 1.00); // billable = MYR cost × markup
+
+// ---------------------------------------------------------------------
+// Outbound mail (optional). Used for password reset, invitations and
+// client reminders. Without it, those flows surface a link/text on
+// screen for manual relay (works on Hostinger without SMTP).
+// ---------------------------------------------------------------------
+// define('MAIL_FROM', 'noreply@your-firm.com');
+// define('MAIL_FROM_NAME', 'Your Audit Firm');
+
+// ---------------------------------------------------------------------
+// Reminders cron. Token guards /cron/reminders.php so only your
+// scheduler can trigger automated client reminders. Hostinger cron:
+//   wget -q -O /dev/null "https://your-domain/cron/reminders.php?token=THIS"
+// ---------------------------------------------------------------------
+// define('CRON_TOKEN', 'change-me-to-a-long-random-string');
+// define('REMINDER_COOLDOWN_DAYS', 3);
 
 // ---------------------------------------------------------------------
 // Optional overrides

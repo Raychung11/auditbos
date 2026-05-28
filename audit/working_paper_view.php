@@ -9,7 +9,9 @@
 
 declare(strict_types=1);
 require_once __DIR__ . '/../includes/auth_guard.php';
+require_once __DIR__ . '/../includes/workplan.php';
 require_role(['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer']);
+require_once __DIR__ . '/../includes/workflow.php';
 
 $pdo    = db();
 $firmId = current_firm_id();
@@ -24,6 +26,18 @@ $canReview = role_allows(['firm_admin','audit_manager','senior_auditor','reviewe
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
     $action = $_POST['_action'] ?? '';
+
+    // Block all mutations when the parent engagement is locked.
+    $engLookup = $pdo->prepare(
+        'SELECT e.id FROM audit_working_papers wp
+           JOIN engagements e ON e.id = wp.engagement_id
+          WHERE wp.id = :id AND e.firm_id = :fid'
+    );
+    $engLookup->execute([':id'=>$id, ':fid'=>$firmId]);
+    $engForLock = (int) ($engLookup->fetchColumn() ?: 0);
+    if ($engForLock > 0) {
+        assert_engagement_open($engForLock);
+    }
 
     if ($action === 'raise_note' && $canReview) {
         $note = trim((string)($_POST['note'] ?? ''));
@@ -145,6 +159,11 @@ require __DIR__ . '/../includes/header.php';
 <a href="/firm/engagement_view.php?id=<?= (int) $wp['engagement_id'] ?>"
    class="text-sm text-brand-600 hover:underline">&larr; Back to engagement</a>
 
+<?php if (!empty($wp['lead_area'])):
+    $sopStep = workplan_step_for_context('wp_lead_area', (string) $wp['lead_area'], (int) $wp['engagement_id']);
+    echo workplan_breadcrumb_html((int) $wp['engagement_id'], $sopStep);
+endif; ?>
+
 <div class="flex flex-wrap items-start justify-between gap-3 mt-1 mb-5">
     <div>
         <div class="text-xs text-slate-500">
@@ -162,8 +181,16 @@ require __DIR__ . '/../includes/header.php';
             <?php if ($wp['risk_rating']): ?><?= badge($wp['risk_rating']) ?><?php endif; ?>
         </div>
     </div>
-    <a href="/audit/working_papers.php?action=edit&id=<?= (int) $wp['id'] ?>"
-       class="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">Edit</a>
+    <div class="flex items-center gap-2">
+        <?php if (defined('AI_ENABLED') && AI_ENABLED): ?>
+            <a href="/ai/run.php?fn=ai_review_working_paper&engagement_id=<?= (int) $wp['engagement_id'] ?>&working_paper_id=<?= (int) $wp['id'] ?>"
+               class="rounded bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 text-sm">
+                AI review
+            </a>
+        <?php endif; ?>
+        <a href="/audit/working_papers.php?action=edit&id=<?= (int) $wp['id'] ?>"
+           class="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">Edit</a>
+    </div>
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">

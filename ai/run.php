@@ -46,10 +46,22 @@ if ($eid > 0) {
     }
 }
 
+// Optional entity context passed through to the prompt builder.
+$workingPaperId = isset($_REQUEST['working_paper_id']) ? (int) $_REQUEST['working_paper_id'] : 0;
+$agingType      = ($_REQUEST['aging_type'] ?? '') === 'creditor' ? 'creditor'
+                : (($_REQUEST['aging_type'] ?? '') === 'debtor' ? 'debtor' : '');
+
 $result = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
-    $result = ai_run($fn, ['confirmed' => true, 'engagement_id' => $eid], $eid ?: null);
+    $payload = ['confirmed' => true];
+    if ($workingPaperId > 0) {
+        $payload['working_paper_id'] = $workingPaperId;
+    }
+    if ($agingType !== '') {
+        $payload['aging_type'] = $agingType;
+    }
+    $result = ai_run($fn, $payload, $eid ?: null);
     if ($result['ok']) {
         log_activity('ai.run', 'engagement', $eid ?: null, $fn);
     }
@@ -77,12 +89,14 @@ require __DIR__ . '/../includes/header.php';
             <?= e($config['prompt']) ?>
         </p>
         <p class="text-xs text-slate-500 mb-4">
-            Running this call will consume
-            <span class="font-medium"><?= number_format(AI_CREDITS_PER_CALL, 2) ?></span>
-            credit(s) from your firm wallet and is recorded in the AI audit log.
-            <?php if (!AI_ENABLED): ?>
-                <span class="block mt-2 text-amber-700">
-                    AI provider not yet configured — a sample stub response will be returned.
+            <?php if (AI_ENABLED): ?>
+                Real Claude API calls will run via <code><?= e(AI_MODEL) ?></code>
+                (effort=<code><?= e(AI_EFFORT) ?></code>, adaptive thinking).
+                Costs from token usage are billed to your firm wallet.
+            <?php else: ?>
+                <span class="text-amber-700">
+                    AI provider not yet configured — stub output will be returned.
+                    Set <code>AI_API_KEY</code> in <code>/config/db_config.local.php</code> to enable.
                 </span>
             <?php endif; ?>
         </p>
@@ -92,6 +106,12 @@ require __DIR__ . '/../includes/header.php';
             <input type="hidden" name="fn" value="<?= e($fn) ?>">
             <?php if ($eid): ?>
                 <input type="hidden" name="engagement_id" value="<?= (int) $eid ?>">
+            <?php endif; ?>
+            <?php if ($workingPaperId): ?>
+                <input type="hidden" name="working_paper_id" value="<?= (int) $workingPaperId ?>">
+            <?php endif; ?>
+            <?php if ($agingType !== ''): ?>
+                <input type="hidden" name="aging_type" value="<?= e($agingType) ?>">
             <?php endif; ?>
             <button class="rounded bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 text-sm font-medium">
                 Run AI assistant
@@ -104,22 +124,37 @@ require __DIR__ . '/../includes/header.php';
             <?= e($result['output']) ?>
         </div>
     <?php else: ?>
-        <div class="bg-white rounded-lg border border-slate-200 p-5 max-w-3xl">
-            <div class="text-xs text-slate-500 mb-2">
-                Log ID #<?= (int) $result['log_id'] ?> · output type:
-                <code><?= e($result['output_type']) ?></code>
-            </div>
-            <pre class="whitespace-pre-wrap text-sm text-slate-800 font-sans"><?= e($result['output']) ?></pre>
-            <div class="mt-4 flex gap-2">
-                <?php if ($engagement): ?>
-                    <a href="/firm/engagement_view.php?id=<?= (int) $eid ?>"
-                       class="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">
-                        Back to engagement
-                    </a>
-                <?php endif; ?>
-                <a href="/ai/run.php?fn=<?= e($fn) ?><?= $eid ? '&engagement_id=' . $eid : '' ?>"
-                   class="text-sm text-brand-600 hover:underline">Run again</a>
-            </div>
+        <div class="bg-white rounded-lg border border-slate-200 p-6 prose-sm max-w-none text-slate-800 leading-relaxed">
+            <?= md_to_html((string) $result['output']) ?>
+        </div>
+        <div class="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+            <span>Log #<?= (int) $result['log_id'] ?></span>
+            <?php if (!empty($result['tokens']['total'])): ?>
+                <span>
+                    <?= number_format((int)($result['tokens']['input'] ?? 0)) ?> in
+                    / <?= number_format((int)($result['tokens']['output'] ?? 0)) ?> out
+                </span>
+            <?php endif; ?>
+            <?php if (($result['credits'] ?? 0) > 0): ?>
+                <span>MYR <?= number_format((float) $result['credits'], 4) ?></span>
+            <?php endif; ?>
+            <?php if (!empty($result['latency_ms'])): ?>
+                <span><?= number_format((int) $result['latency_ms']) ?>ms</span>
+            <?php endif; ?>
+        </div>
+        <div class="mt-4 flex flex-wrap gap-2">
+            <a href="/ai/outputs.php<?= $eid ? '?engagement_id=' . (int) $eid : '' ?>"
+               class="rounded bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 text-sm">
+                Open in AI Outputs
+            </a>
+            <?php if ($engagement): ?>
+                <a href="/firm/engagement_view.php?id=<?= (int) $eid ?>"
+                   class="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">
+                    Back to engagement
+                </a>
+            <?php endif; ?>
+            <a href="/ai/run.php?fn=<?= e($fn) ?><?= $eid ? '&engagement_id=' . (int) $eid : '' ?><?= $workingPaperId ? '&working_paper_id=' . (int) $workingPaperId : '' ?>"
+               class="text-sm text-brand-600 hover:underline self-center">Run again</a>
         </div>
     <?php endif; ?>
 <?php endif; ?>

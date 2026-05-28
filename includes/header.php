@@ -53,6 +53,31 @@ $flashes   = take_flashes();
 </head>
 <body class="bg-slate-50 text-slate-800 antialiased">
 
+<?php if (is_impersonating()):
+    $realU = real_user();
+    $currU = current_user();
+?>
+    <div class="bg-amber-500 text-amber-950 text-sm">
+        <div class="flex items-center justify-between gap-3 px-5 py-2">
+            <div>
+                <span class="font-semibold">Impersonating</span>
+                <?= e($currU['name'] ?? '?') ?>
+                <span class="opacity-80">(<?= e(ucwords(str_replace('_',' ',$currU['role'] ?? ''))) ?>)</span>
+                <span class="opacity-70">— as super admin
+                    <?= e($realU['name'] ?? '?') ?></span>
+            </div>
+            <form method="post" action="/admin/impersonate.php">
+                <?= csrf_field() ?>
+                <input type="hidden" name="_action" value="stop">
+                <input type="hidden" name="return_to" value="<?= e($_SERVER['REQUEST_URI'] ?? '/admin/firms.php') ?>">
+                <button class="rounded bg-amber-950 text-amber-50 px-3 py-1 text-xs font-medium hover:bg-black/80">
+                    Stop impersonating
+                </button>
+            </form>
+        </div>
+    </div>
+<?php endif; ?>
+
 <div class="min-h-screen flex">
     <?php require __DIR__ . '/sidebar.php'; ?>
 

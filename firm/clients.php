@@ -239,6 +239,12 @@ require __DIR__ . '/../includes/header.php';
                 </button>
                 <a href="/firm/clients.php"
                    class="rounded border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50">Cancel</a>
+                <?php if ($mode === 'edit'): ?>
+                    <a href="/firm/client_portal.php?id=<?= (int) $record['id'] ?>"
+                       class="ml-auto rounded border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50">
+                        Manage portal users &rarr;
+                    </a>
+                <?php endif; ?>
             </div>
         </form>
     </div>
@@ -284,6 +290,8 @@ require __DIR__ . '/../includes/header.php';
                             <td><?= badge($c['audit_status']) ?></td>
                             <?php if ($canEdit): ?>
                                 <td class="text-right">
+                                    <a href="/firm/client_portal.php?id=<?= (int) $c['id'] ?>"
+                                       class="text-sm text-slate-600 hover:underline mr-3">Portal</a>
                                     <a href="/firm/clients.php?action=edit&id=<?= (int) $c['id'] ?>"
                                        class="text-sm text-brand-600 hover:underline">Edit</a>
                                 </td>
