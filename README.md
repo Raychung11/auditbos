@@ -560,6 +560,7 @@ document root at the project root.
 | `sql/007_aging.sql` | `aging_items` table (debtor / creditor aging) |
 | `sql/008_rollover.sql` | adds `rolled_over_from_id` to `engagements` |
 | `sql/009_workplan.sql` | `engagement_workplan` table for the 27-step audit SOP |
+| `sql/010_gap_modules.sql` | `related_parties`, `related_party_transactions`, `tax_computations`, `tax_adjustments`, `misstatements`, `completion_checklist` |
 
 Run them in order. They're idempotent on `CREATE TABLE IF NOT EXISTS` for the new tables
 but the `ALTER TABLE` statements in `002` will fail if run twice — wrap in your own
@@ -640,6 +641,10 @@ find . -name "*.php" -not -path "./.git/*" -print0 | xargs -0 -n1 php -l | grep 
 - ✅ Independent auditor's report draft generator (4 opinion types, ISA 700 / Companies Act 2016 structure)
 - ✅ Year-end rollover (clone WPs, requests, lead overrides, materiality basis, team) + filtered engagement list + per-engagement completion rings
 - ✅ 27-step audit workplan SOP (Client Acceptance → File Locking) — auto-seeded per engagement, owner/reviewer/due-date assignment, hook-based auto-progression from underlying features
+- ✅ Related party register + transactions (MFRS 124, arm's-length flagging)
+- ✅ Malaysian tax computation (PBT → add-backs / deductions / capital allowances → chargeable income → tax @ 24%, deferred tax movement, CP204 reconciliation)
+- ✅ Schedule of Uncorrected Misstatements (SUM, ISA 450) — aggregates uncorrected impact vs performance materiality
+- ✅ Audit completion checklist (auto-driven + manual sign-off items, gate before partner review)
 - ✅ Financial statement export (SOFP + SOCI)
 - ✅ AI assistant (8 functions + document classifier)
 - ✅ Staff KPI module + partner dashboard

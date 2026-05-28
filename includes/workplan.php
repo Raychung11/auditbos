@@ -146,12 +146,12 @@ function workplan_master_template(): array
         ['step_no'=>20, 'code'=>'related_party', 'phase'=>'fieldwork',
          'title'=>'Related Party Lead',
          'procedures'=>"- Intercompany / director account reconciliation\n- Sales / purchases with related parties — arm's length review\n- Director's current account movement scrutiny\n- MFRS 124 disclosure completeness check",
-         'automation_hook'=>null, 'depends_on'=>'4', 'default_role'=>'senior_auditor'],
+         'automation_hook'=>'related_party_done', 'depends_on'=>'4', 'default_role'=>'senior_auditor'],
 
         ['step_no'=>21, 'code'=>'tax', 'phase'=>'fieldwork',
          'title'=>'Tax Lead',
          'procedures'=>"- Tax computation: book profit → taxable income (add-backs)\n- Deferred tax computation (temporary differences)\n- SST / e-invoice compliance risk tagging\n- Tax instalment vs estimated tax payable reconciliation",
-         'automation_hook'=>'lead_tax', 'depends_on'=>'4', 'default_role'=>'senior_auditor'],
+         'automation_hook'=>'tax_computation_done', 'depends_on'=>'4', 'default_role'=>'senior_auditor'],
 
         // ----- COMPLETION -----------------------------------------------
         ['step_no'=>22, 'code'=>'subsequent_events', 'phase'=>'completion',
@@ -167,12 +167,12 @@ function workplan_master_template(): array
         ['step_no'=>24, 'code'=>'misstatement_sum', 'phase'=>'completion',
          'title'=>'SUM / Misstatement Lead',
          'procedures'=>"- Accumulate uncorrected misstatements from all leads\n- Compare aggregate vs performance materiality\n- Evaluate qualitative misstatements\n- Management representation on uncorrected items",
-         'automation_hook'=>null, 'depends_on'=>'5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21', 'default_role'=>'audit_manager'],
+         'automation_hook'=>'misstatement_done', 'depends_on'=>'5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21', 'default_role'=>'audit_manager'],
 
         ['step_no'=>25, 'code'=>'completion', 'phase'=>'completion',
          'title'=>'Audit Completion Lead',
          'procedures'=>"- File completion checklist (all leads cleared)\n- Review notes — all cleared / carry-forward documented\n- Manager review → Partner review sign-off chain\n- Management representation letter received",
-         'automation_hook'=>'completion_checklist', 'depends_on'=>'22,23,24', 'default_role'=>'audit_manager'],
+         'automation_hook'=>'completion_done', 'depends_on'=>'22,23,24', 'default_role'=>'audit_manager'],
 
         // ----- REPORTING ------------------------------------------------
         ['step_no'=>26, 'code'=>'audit_report', 'phase'=>'reporting',
@@ -456,7 +456,39 @@ function workplan_hook_state(int $engagementId): array
                 AND status IN ("accepted","published") LIMIT 1',
             [':e' => $engagementId]);
 
-    // Audit completion — engagement at partner_review or beyond
+    // Related party register has at least one party logged.
+    $state['related_party_done'] = table_exists('related_parties')
+        && $exists('SELECT 1 FROM related_parties WHERE engagement_id = :e LIMIT 1',
+                   [':e' => $engagementId]);
+
+    // Tax computation row exists OR a tax-area WP is cleared.
+    $state['tax_computation_done'] = (
+        table_exists('tax_computations')
+        && $exists('SELECT 1 FROM tax_computations WHERE engagement_id = :e LIMIT 1',
+                   [':e' => $engagementId])
+    ) || !empty($state['lead_tax']);
+
+    // SUM cleared: at least one misstatement raised + uncorrected aggregate
+    // within performance materiality (or PM not set yet, in which case the
+    // step stays open).
+    $state['misstatement_done'] = false;
+    if (table_exists('misstatements')) {
+        require_once __DIR__ . '/misstatements.php';
+        $m = mis_summary($engagementId);
+        $state['misstatement_done'] = ($m['uncorrected']['count'] + $m['corrected']['count']) > 0
+            && $m['pm'] !== null
+            && !$m['breach_pm'];
+    }
+
+    // Audit completion checklist — every item ticked.
+    $state['completion_done'] = false;
+    if (table_exists('completion_checklist')) {
+        require_once __DIR__ . '/completion.php';
+        $state['completion_done'] = completion_is_complete($engagementId);
+    }
+
+    // Audit completion (legacy hook for the old workflow-based gate) —
+    // engagement at partner_review or beyond
     $st = $pdo->prepare('SELECT review_stage, locked_at FROM engagements WHERE id = :e');
     $st->execute([':e' => $engagementId]);
     $eng = $st->fetch();
@@ -631,12 +663,13 @@ function workplan_step_links(string $code, int $engagementId): array
             ];
         case 'related_party':
             return [
-                ['label' => 'Working papers (related party)',
-                 'href' => "/audit/working_papers.php?engagement_id={$eid}"],
+                ['label' => 'Related party register',
+                 'href' => "/audit/related_party.php?engagement_id={$eid}"],
             ];
         case 'tax':
             return [
-                ['label' => 'Tax lead', 'href' => "/audit/lead_schedules.php?engagement_id={$eid}&area=tax"],
+                ['label' => 'Tax computation', 'href' => "/audit/tax_computation.php?engagement_id={$eid}"],
+                ['label' => 'Tax lead',        'href' => "/audit/lead_schedules.php?engagement_id={$eid}&area=tax"],
             ];
         case 'subsequent_events':
             return [
@@ -649,11 +682,13 @@ function workplan_step_links(string $code, int $engagementId): array
             ];
         case 'misstatement_sum':
             return [
-                ['label' => 'Working papers (all)', 'href' => "/audit/working_papers.php?engagement_id={$eid}"],
+                ['label' => 'Misstatements (SUM)', 'href' => "/audit/misstatements.php?engagement_id={$eid}"],
+                ['label' => 'Working papers',      'href' => "/audit/working_papers.php?engagement_id={$eid}"],
             ];
         case 'completion':
             return [
-                ['label' => 'Approval & sign-off', 'href' => "/firm/engagement_view.php?id={$eid}#workflow"],
+                ['label' => 'Completion checklist', 'href' => "/audit/completion.php?engagement_id={$eid}"],
+                ['label' => 'Approval & sign-off',  'href' => "/firm/engagement_view.php?id={$eid}#workflow"],
                 ['label' => 'AI status summary',
                  'href' => "/ai/run.php?fn=ai_summarize_engagement_status&engagement_id={$eid}"],
             ];
@@ -744,8 +779,12 @@ function workplan_kickoff_step(int $engagementId, int $stepNo, ?int $userId): ?s
         'tb_import'         => '/import/trial_balance.php?engagement_id=' . $engagementId,
         'documents_intake'  => '/firm/doc_requests.php?engagement_id=' . $engagementId,
         'materiality'       => '/audit/analytical_review.php?engagement_id=' . $engagementId,
+        'related_party'     => '/audit/related_party.php?engagement_id=' . $engagementId,
+        'tax'               => '/audit/tax_computation.php?engagement_id=' . $engagementId,
         'subsequent_events' => '/ai/run.php?fn=ai_detect_variance&engagement_id=' . $engagementId,
         'going_concern'     => '/audit/analytical_review.php?engagement_id=' . $engagementId,
+        'misstatement_sum'  => '/audit/misstatements.php?engagement_id=' . $engagementId,
+        'completion'        => '/audit/completion.php?engagement_id=' . $engagementId,
         'audit_report'      => '/reports/audit_report.php?engagement_id=' . $engagementId,
         'file_locking'      => '/firm/engagement_view.php?id=' . $engagementId . '#workflow',
         'client_acceptance' => '/firm/engagements.php?action=edit&id=' . $engagementId,
@@ -858,6 +897,9 @@ function workplan_step_for_context(string $contextKey, string $contextValue, int
             'completion'       => 25,
             'gl_analytics'     => 5,
             'subsequent'       => 22,
+            'related_party'    => 20,
+            'tax_computation'  => 21,
+            'misstatements'    => 24,
         ];
         $stepNo = $moduleToStep[$contextValue] ?? null;
         if ($stepNo === null) {

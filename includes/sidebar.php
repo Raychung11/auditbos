@@ -118,6 +118,30 @@ $nav = [
         'icon'  => 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z',
     ],
     [
+        'label' => 'Related Parties',
+        'href'  => '/audit/related_party.php',
+        'roles' => ['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer'],
+        'icon'  => 'M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87M16 3.13a4 4 0 010 7.75M8 3.13a4 4 0 000 7.75M12 12a4 4 0 100-8 4 4 0 000 8z',
+    ],
+    [
+        'label' => 'Tax Computation',
+        'href'  => '/audit/tax_computation.php',
+        'roles' => ['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer'],
+        'icon'  => 'M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z',
+    ],
+    [
+        'label' => 'Misstatements (SUM)',
+        'href'  => '/audit/misstatements.php',
+        'roles' => ['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer'],
+        'icon'  => 'M12 9v2m0 4h.01M6.938 4h10.124a2 2 0 011.79 2.894l-5.062 10.124a2 2 0 01-3.58 0L5.148 6.894A2 2 0 016.938 4z',
+    ],
+    [
+        'label' => 'Completion',
+        'href'  => '/audit/completion.php',
+        'roles' => ['firm_admin','audit_manager','senior_auditor','reviewer'],
+        'icon'  => 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z',
+    ],
+    [
         'label' => 'Import Data',
         'href'  => '/import/index.php',
         'roles' => ['firm_admin','audit_manager','senior_auditor','junior_auditor','reviewer'],
